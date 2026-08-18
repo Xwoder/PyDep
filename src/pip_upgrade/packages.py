@@ -109,6 +109,22 @@ def _info_from_payload(name: str, data: dict) -> PyPIInfo:
     )
 
 
+def clear_cache(cache_dir: Path | None = None) -> int:
+    """清空 PyPI 结果缓存，返回删除的文件数。目录不存在时返回 0。"""
+    target = cache_dir or default_cache_dir()
+    removed = 0
+    if not target.is_dir():
+        return 0
+    try:
+        for entry in target.iterdir():
+            if entry.is_file():
+                entry.unlink()
+                removed += 1
+    except OSError:
+        pass
+    return removed
+
+
 def _cache_path(cache_dir: Path, name: str) -> Path:
     return cache_dir / f"{name}.json"
 

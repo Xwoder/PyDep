@@ -7,6 +7,7 @@ import pytest
 
 from pip_upgrade.packages import (
     PyPIInfo,
+    clear_cache,
     fetch_pypi_info,
     fetch_pypi_info_many,
 )
@@ -47,6 +48,48 @@ class FakeClient:
         if self.fail:
             raise httpx.ConnectError("network down")
         return FakeResponse(self.payload)
+
+
+def test_clear_cache_removes_files(tmp_path):
+    (tmp_path / "a.json").write_text("{}")
+    (tmp_path / "b.json").write_text("{}")
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "keep.txt").write_text("x")
+
+    assert clear_cache(tmp_path) == 2
+    assert not (tmp_path / "a.json").exists()
+    assert not (tmp_path / "b.json").exists()
+    assert (sub / "keep.txt").exists()  # 子目录不动
+
+
+def test_clear_cache_missing_dir_is_noop(tmp_path):
+    assert clear_cache(tmp_path / "nope") == 0
+
+
+def test_clear_cache_then_network_again(tmp_path):
+    """清空后再次查询会走网络（cache 状态重新变成 network）。"""
+    import pip_upgrade.packages as pkg
+
+    client = FakeClient(payload=make_payload("2.0.0"))
+
+    async def fake_fetch(name, _client, **kwargs):  # noqa: ANN202
+        return await fetch_pypi_info(name, client, **kwargs)
+
+    original = pkg.fetch_pypi_info
+    pkg.fetch_pypi_info = fake_fetch  # type: ignore[assignment]
+    try:
+        assert asyncio.run(
+            fetch_pypi_info_many(["demo"], cache_dir=tmp_path)
+        )["demo"].latest == "2.0.0"
+        clear_cache(tmp_path)
+        assert asyncio.run(
+            fetch_pypi_info_many(["demo"], cache_dir=tmp_path)
+        )["demo"].latest == "2.0.0"
+    finally:
+        pkg.fetch_pypi_info = original  # type: ignore[assignment]
+
+    assert client.calls == 2  # 清空缓存后重新联网
 
 
 @pytest.mark.asyncio

@@ -22,6 +22,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from .environment import detect_environment, find_project_venv, probe_interpreter
 from .packages import (
     InstalledPackage,
+    clear_cache,
     fetch_pypi_info_many,
     list_installed,
     parse_dependency_file,
@@ -62,11 +63,22 @@ def main(
     no_cache: bool = typer.Option(
         False, "--no-cache", help="禁用 PyPI 结果磁盘缓存"
     ),
+    clear_cache_opt: bool = typer.Option(
+        False, "--clear-cache", help="清空 PyPI 结果磁盘缓存后退出，不执行检查"
+    ),
     timeout: float = typer.Option(
         10.0, "--timeout", help="整个 PyPI 查询阶段的超时秒数"
     ),
 ) -> None:
     """交互式升级指定环境或项目的依赖。"""
+
+    if clear_cache_opt:
+        removed = clear_cache()
+        if removed:
+            console.print(f"[green]已清空 {removed} 个缓存文件。[/green]")
+        else:
+            console.print("[dim]缓存目录不存在或已为空，无需清理。[/dim]")
+        raise typer.Exit(0)
 
     env = detect_environment()
 
