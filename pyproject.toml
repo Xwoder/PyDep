@@ -30,7 +30,7 @@ dev = [
 ]
 
 [project.scripts]
-pip-upgrader = "pip_upgrade.cli:app"
+pip-upgrader = "pip_upgrader.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
