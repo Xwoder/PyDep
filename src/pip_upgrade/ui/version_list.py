@@ -66,7 +66,7 @@ class VersionModal(ModalScreen[str | None]):
             header.append(f"\nRequires-Python: {rp}", style="dim")
         if self._conflicts:
             header.append(
-                f"\n{len(self._conflicts)} 个版本与已安装包依赖冲突",
+                f"\n{len(self._conflicts)} 个版本与已安装包依赖不兼容",
                 style="bold red",
             )
         if self._yanked:
