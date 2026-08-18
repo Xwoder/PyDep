@@ -1,7 +1,7 @@
 """TUI 冒烟测试：使用 Textual 的 pilot 驱动交互。"""
 
 import pytest
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, Label, ListView, Static
 
 from pip_upgrade.environment import detect_environment
 from pip_upgrade.packages import InstalledPackage, PyPIInfo
@@ -92,6 +92,108 @@ async def test_remembers_selected_version_on_reopen():
         await pilot.press("enter")
         await pilot.pause()
         assert app.screen._selected == "1.2.0"  # type: ignore[attr-defined]
+        await pilot.press("escape")
+        await pilot.press("q")
+
+
+def make_yanked_candidates() -> list[UpgradeCandidate]:
+    """demo 的 1.2.0 已被发布者 yanked（撤回），1.3.0 正常。"""
+    pkg = InstalledPackage(name="demo", version="1.0.0")
+    info = PyPIInfo(
+        name="demo",
+        latest="1.3.0",
+        releases={
+            "1.2.0": [{"requires_python": None, "yanked": True}],
+            "1.3.0": [{"requires_python": None, "yanked": False}],
+        },
+    )
+    cand = UpgradeCandidate(
+        package=pkg,
+        info=info,
+        options=[
+            UpgradeOption(version="1.3.0"),
+            UpgradeOption(version="1.2.0", yanked=True),
+        ],
+    )
+    return [cand]
+
+
+@pytest.mark.asyncio
+async def test_version_modal_marks_yanked():
+    """版本弹窗中，yanked 版本应标黄标记并带悬停说明。"""
+    app = PipUpgradeApp(candidates=make_yanked_candidates(), env=detect_environment())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        modal = app.screen
+        assert isinstance(modal, VersionModal)
+        assert modal._yanked == {"1.2.0"}
+
+        lv = modal.query_one("#version-list", ListView)
+        labels = [child.query_one(Label) for child in lv.children]
+        # yanked 版本（1.2.0）带 [yanked] 标记及悬停说明，正常版本（1.3.0）没有
+        assert "[yanked]" in str(labels[1].content)
+        assert "[yanked]" not in str(labels[0].content)
+        assert labels[1].tooltip and "yanked" in str(labels[1].tooltip)
+        assert not labels[0].tooltip
+
+        await pilot.press("escape")
+        await pilot.press("q")
+
+
+def make_conflicted_candidates() -> list[UpgradeCandidate]:
+    """websockets 升级到 16.0 会与 langgraph-sdk 的约束冲突。"""
+    ws = InstalledPackage(name="websockets", version="15.0.1")
+    lg = InstalledPackage(
+        name="langgraph-sdk",
+        version="0.4.2",
+        requires=["websockets<16,>=14"],
+    )
+    info = PyPIInfo(
+        name="websockets",
+        latest="16.0",
+        releases={
+            "16.0": [{"requires_python": None, "yanked": False}],
+            "15.1.0": [{"requires_python": None, "yanked": False}],
+        },
+    )
+    cand_ws = UpgradeCandidate(
+        package=ws,
+        info=info,
+        options=[UpgradeOption(version=v) for v in ["16.0", "15.1.0"]],
+    )
+    cand_lg = UpgradeCandidate(
+        package=lg,
+        info=PyPIInfo(name="langgraph-sdk", latest="0.4.2", releases={}),
+        options=[],
+    )
+    return [cand_ws, cand_lg]
+
+
+@pytest.mark.asyncio
+async def test_version_modal_marks_conflicts():
+    """版本弹窗中，与已安装包依赖冲突的版本应标红并带悬停详情。"""
+    app = PipUpgradeApp(candidates=make_conflicted_candidates(), env=detect_environment())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # 光标默认在第一行（websockets），Enter 打开版本弹窗
+        await pilot.press("enter")
+        await pilot.pause()
+        modal = app.screen
+        assert isinstance(modal, VersionModal)
+        # 16.0 与 langgraph-sdk 冲突，15.1.0 不冲突
+        assert "16.0" in modal._conflicts
+        assert "15.1.0" not in modal._conflicts
+
+        lv = modal.query_one("#version-list", ListView)
+        labels = [child.query_one(Label) for child in lv.children]
+        # 冲突版本标红：内容带 ! 标记，且设置了悬停详情
+        assert "!" in str(labels[0].content)  # 16.0
+        assert "!" not in str(labels[1].content)  # 15.1.0
+        assert labels[0].tooltip and "websockets<16,>=14" in str(labels[0].tooltip)
+        assert not labels[1].tooltip
+
         await pilot.press("escape")
         await pilot.press("q")
 

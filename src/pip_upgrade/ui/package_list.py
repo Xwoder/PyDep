@@ -150,8 +150,9 @@ class PackageListScreen(Screen[None]):
             self.notify(f"{name} 没有可升级的版本", severity="warning")
             return
         current = self.app.selected.get(name)  # type: ignore[attr-defined]
+        installed = [c.package for c in self.candidates]
         result = await self.app.push_screen_wait(  # type: ignore[attr-defined]
-            VersionModal(cand, current_version=current)
+            VersionModal(cand, current_version=current, installed=installed)
         )
         if result:
             self.app.selected[name] = result  # type: ignore[attr-defined]

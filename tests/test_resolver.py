@@ -58,7 +58,8 @@ def test_allows_prerelease_when_installed_is_prerelease():
     assert [o.version for o in cand.options] == ["2.0rc1", "1.5"]
 
 
-def test_hides_yanked_unless_no_alternative():
+def test_yanked_kept_but_sorted_last():
+    """yanked 版本不再默认隐藏：保留在列表末尾供 UI 标记，非 yanked 优先。"""
     info = PyPIInfo(
         name="demo",
         latest="1.2",
@@ -69,8 +70,12 @@ def test_hides_yanked_unless_no_alternative():
     )
     pkg = InstalledPackage(name="demo", version="1.0")
     cand = build_candidates([pkg], {"demo": info}, "3.10")[0]
-    assert [o.version for o in cand.options] == ["1.2"]
+    # 非 yanked 版本在前，yanked 版本排在末尾
+    assert [o.version for o in cand.options] == ["1.2", "1.1"]
+    assert not cand.options[0].yanked
+    assert cand.options[1].yanked
 
+    # 全部都是 yanked 时正常展示
     info2 = PyPIInfo(
         name="demo",
         latest="1.1",
@@ -78,6 +83,7 @@ def test_hides_yanked_unless_no_alternative():
     )
     cand2 = build_candidates([pkg], {"demo": info2}, "3.10")[0]
     assert [o.version for o in cand2.options] == ["1.1"]
+    assert cand2.options[0].yanked
 
 
 def test_missing_from_pypi():

@@ -79,7 +79,7 @@ def build_candidates(
     1. Requires-Python 必须兼容当前解释器；
     2. 版本必须严格高于当前已安装版本；
     3. 默认过滤预发布版本（除非当前装的就是预发布版，或显式 --all）；
-    4. 默认隐藏 yanked 版本（除非没有其它可选版本）。
+    4. yanked 版本保留但排在列表末尾（供 UI 标记提示，截断时优先保留非 yanked）。
     """
     candidates: list[UpgradeCandidate] = []
     for pkg in packages:
@@ -109,7 +109,9 @@ def build_candidates(
                 )
             )
 
-        visible = [o for o in options if not o.yanked] or options
+        # 稳定排序：非 yanked 版本保持在前面（仍从新到旧），yanked 版本统一排到末尾
+        options.sort(key=lambda o: o.yanked)
+        visible = options
         if max_options is not None:
             visible = visible[:max_options]
 
