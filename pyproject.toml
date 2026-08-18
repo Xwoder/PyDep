@@ -3,12 +3,12 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pip-upgrade"
+name = "pip-upgrader"
 version = "0.1.0"
 description = "交互式终端工具：检查并升级当前 Python 环境的依赖包"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "pip-upgrade" }]
+authors = [{ name = "pip-upgrader" }]
 keywords = ["pip", "upgrade", "tui", "textual", "packaging"]
 classifiers = [
     "Environment :: Console",
@@ -30,7 +30,7 @@ dev = [
 ]
 
 [project.scripts]
-pip-upgrade = "pip_upgrade.cli:app"
+pip-upgrader = "pip_upgrade.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]

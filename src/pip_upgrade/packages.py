@@ -85,7 +85,7 @@ def default_cache_dir() -> Path:
         root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
     else:
         root = Path.home() / ".cache"
-    return root / "pip-upgrade" / "pypi"
+    return root / "pip-upgrader" / "pypi"
 
 
 def _info_from_payload(name: str, data: dict) -> PyPIInfo:

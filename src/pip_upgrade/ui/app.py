@@ -92,7 +92,7 @@ VersionModal, ConfirmModal {
 
 
 class PipUpgradeApp(App[dict | None]):
-    """pip-upgrade 主应用。
+    """pip-upgrader 主应用。
 
     退出时通过 exit() 返回 {execute, pins}：
     - execute=True 表示用户确认要在 CLI 中直接执行 pip install
@@ -100,7 +100,7 @@ class PipUpgradeApp(App[dict | None]):
     """
 
     CSS = CSS
-    TITLE = "pip-upgrade"
+    TITLE = "pip-upgrader"
     BINDINGS = [
         Binding("q", "quit", "退出", show=False),
         Binding("ctrl+c", "quit", "退出", show=False),

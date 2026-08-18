@@ -67,7 +67,7 @@ def test_probe_interpreter_current():
     result = probe_interpreter(sys.executable)
     assert result.env.python_version.startswith(("3.", "2."))
     assert result.env.python_executable == sys.executable
-    assert any(p.name == "pip-upgrade" for p in result.packages)
+    assert any(p.name == "pip-upgrader" for p in result.packages)
 
 
 def test_resolver_uninstalled_package_all_versions_are_candidates():
