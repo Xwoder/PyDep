@@ -3,11 +3,11 @@
 import pytest
 from textual.widgets import DataTable, Label, ListView, Static
 
-from pip_upgrade.environment import detect_environment
-from pip_upgrade.packages import InstalledPackage, PyPIInfo
-from pip_upgrade.resolver import UpgradeCandidate, UpgradeOption
-from pip_upgrade.ui.app import PipUpgradeApp
-from pip_upgrade.ui.version_list import VersionModal
+from pip_upgrader.environment import detect_environment
+from pip_upgrader.packages import InstalledPackage, PyPIInfo
+from pip_upgrader.resolver import UpgradeCandidate, UpgradeOption
+from pip_upgrader.ui.app import PipUpgradeApp
+from pip_upgrader.ui.version_list import VersionModal
 
 
 def make_candidates() -> list[UpgradeCandidate]:
@@ -207,7 +207,7 @@ async def test_execute_shows_confirm_modal():
         assert app.selected == {"demo": "1.3.0"}
 
         # 按 e 应弹出确认框（而不是 NoActiveWorker 崩溃）
-        from pip_upgrade.ui.dialog import ConfirmModal
+        from pip_upgrader.ui.dialog import ConfirmModal
 
         await pilot.press("e")
         await pilot.pause()
@@ -230,4 +230,50 @@ async def test_space_toggle_unselects():
         assert app.selected == {"demo": "1.3.0"}
         await pilot.press("space")
         assert app.selected == {}
+        await pilot.press("q")
+
+
+def make_mixed_candidates() -> list[UpgradeCandidate]:
+    """demo 可升级；nosel 在 PyPI 但无更高版本；localpkg 不在 PyPI。"""
+    demo = make_candidates()[0]
+    nosel = UpgradeCandidate(
+        package=InstalledPackage(name="nosel", version="1.0.0"),
+        info=PyPIInfo(
+            name="nosel",
+            latest="1.0.0",
+            releases={"1.0.0": [{"requires_python": None, "yanked": False}]},
+        ),
+        options=[],
+    )
+    local = UpgradeCandidate(
+        package=InstalledPackage(name="localpkg", version="0.1.0"),
+        info=None,
+        options=[],
+    )
+    return [demo, nosel, local]
+
+
+@pytest.mark.asyncio
+async def test_filter_upgradable_toggle():
+    """按 f 仅显示可升级的包；再次按下恢复显示全部。"""
+    app = PipUpgradeApp(candidates=make_mixed_candidates(), env=detect_environment())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        table = screen.query_one(DataTable)
+        assert len(table.rows) == 3
+
+        # 第一次按 f：只剩可升级的 demo
+        await pilot.press("f")
+        await pilot.pause()
+        assert len(table.rows) == 1
+        assert "demo" in screen._row_key_by_name
+        assert "nosel" not in screen._row_key_by_name
+        assert "localpkg" not in screen._row_key_by_name
+
+        # 再次按 f：恢复全部
+        await pilot.press("f")
+        await pilot.pause()
+        assert len(table.rows) == 3
+
         await pilot.press("q")

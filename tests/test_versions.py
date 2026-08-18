@@ -1,6 +1,6 @@
 """versions 模块的单元测试。"""
 
-from pip_upgrade.versions import (
+from pip_upgrader.versions import (
     compatible_with_python,
     is_prerelease,
     sort_versions,

@@ -3,15 +3,15 @@
 import os
 import sys
 
-from pip_upgrade.environment import find_project_venv, probe_interpreter
-from pip_upgrade.packages import (
+from pip_upgrader.environment import find_project_venv, probe_interpreter
+from pip_upgrader.packages import (
     InstalledPackage,
     PyPIInfo,
     parse_dependency_file,
     parse_pyproject,
     parse_requirements_file,
 )
-from pip_upgrade.resolver import build_candidates
+from pip_upgrader.resolver import build_candidates
 
 
 def test_parse_requirements_file(tmp_path):

@@ -5,7 +5,7 @@ import asyncio
 import httpx
 import pytest
 
-from pip_upgrade.packages import (
+from pip_upgrader.packages import (
     PyPIInfo,
     clear_cache,
     fetch_pypi_info,
@@ -69,7 +69,7 @@ def test_clear_cache_missing_dir_is_noop(tmp_path):
 
 def test_clear_cache_then_network_again(tmp_path):
     """清空后再次查询会走网络（cache 状态重新变成 network）。"""
-    import pip_upgrade.packages as pkg
+    import pip_upgrader.packages as pkg
 
     client = FakeClient(payload=make_payload("2.0.0"))
 
@@ -162,7 +162,7 @@ async def test_many_progress_and_collection(tmp_path):
     async def fake_fetch(name, _client, **kwargs):  # noqa: ANN202
         return await fetch_pypi_info(name, client, **kwargs)
 
-    import pip_upgrade.packages as pkg
+    import pip_upgrader.packages as pkg
 
     original = pkg.fetch_pypi_info
     pkg.fetch_pypi_info = fake_fetch  # type: ignore[assignment]
@@ -184,7 +184,7 @@ async def test_many_progress_and_collection(tmp_path):
 @pytest.mark.asyncio
 async def test_many_timeout_keeps_partial_results():
     """整体超时：已完成的保留，未完成的以 timeout 报告，不抛异常、不整体丢弃。"""
-    import pip_upgrade.packages as pkg
+    import pip_upgrader.packages as pkg
 
     async def mixed_fetch(name, _client, **kwargs):  # noqa: ANN202
         if name == "fast":
@@ -214,7 +214,7 @@ async def test_many_timeout_keeps_partial_results():
 @pytest.mark.asyncio
 async def test_many_no_timeout_when_absent():
     """未传 timeout 时行为与 gather 一致：等待全部完成。"""
-    import pip_upgrade.packages as pkg
+    import pip_upgrader.packages as pkg
 
     async def quick_fetch(name, _client, **kwargs):  # noqa: ANN202
         return PyPIInfo(name=name, latest="1.0.0"), "network"

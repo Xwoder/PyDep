@@ -1,7 +1,7 @@
 """resolver / packages 模块的单元测试。"""
 
-from pip_upgrade.packages import InstalledPackage, PyPIInfo
-from pip_upgrade.resolver import build_candidates, check_reverse_dep_conflicts
+from pip_upgrader.packages import InstalledPackage, PyPIInfo
+from pip_upgrader.resolver import build_candidates, check_reverse_dep_conflicts
 
 
 def make_info(name: str, latest: str, releases: dict[str, str | None]) -> PyPIInfo:
