@@ -3,12 +3,12 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pip-upgrader"
+name = "pydep"
 version = "0.1.0"
 description = "交互式终端工具：检查并升级当前 Python 环境的依赖包"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "pip-upgrader" }]
+authors = [{ name = "pydep" }]
 keywords = ["pip", "upgrade", "tui", "textual", "packaging"]
 classifiers = [
     "Environment :: Console",
@@ -30,7 +30,7 @@ dev = [
 ]
 
 [project.scripts]
-pip-upgrader = "pip_upgrader.cli:app"
+pydep = "pydep.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]

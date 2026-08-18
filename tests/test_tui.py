@@ -3,11 +3,11 @@
 import pytest
 from textual.widgets import DataTable, Label, ListView, Static
 
-from pip_upgrader.environment import detect_environment
-from pip_upgrader.packages import InstalledPackage, PyPIInfo
-from pip_upgrader.resolver import UpgradeCandidate, UpgradeOption
-from pip_upgrader.ui.app import PipUpgradeApp
-from pip_upgrader.ui.version_list import VersionModal
+from pydep.environment import detect_environment
+from pydep.packages import InstalledPackage, PyPIInfo
+from pydep.resolver import UpgradeCandidate, UpgradeOption
+from pydep.ui.app import PydepApp
+from pydep.ui.version_list import VersionModal
 
 
 def make_candidates() -> list[UpgradeCandidate]:
@@ -32,7 +32,7 @@ def make_candidates() -> list[UpgradeCandidate]:
 
 @pytest.mark.asyncio
 async def test_select_package_and_version_flow():
-    app = PipUpgradeApp(candidates=make_candidates(), env=detect_environment())
+    app = PydepApp(candidates=make_candidates(), env=detect_environment())
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -64,7 +64,7 @@ async def test_select_package_and_version_flow():
 
 @pytest.mark.asyncio
 async def test_remembers_selected_version_on_reopen():
-    app = PipUpgradeApp(candidates=make_candidates(), env=detect_environment())
+    app = PydepApp(candidates=make_candidates(), env=detect_environment())
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("space")
@@ -121,7 +121,7 @@ def make_yanked_candidates() -> list[UpgradeCandidate]:
 @pytest.mark.asyncio
 async def test_version_modal_marks_yanked():
     """版本弹窗中，yanked 版本应标黄标记并带悬停说明。"""
-    app = PipUpgradeApp(candidates=make_yanked_candidates(), env=detect_environment())
+    app = PydepApp(candidates=make_yanked_candidates(), env=detect_environment())
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")
@@ -174,7 +174,7 @@ def make_conflicted_candidates() -> list[UpgradeCandidate]:
 @pytest.mark.asyncio
 async def test_version_modal_marks_conflicts():
     """版本弹窗中，与已安装包依赖冲突的版本应标红并带悬停详情。"""
-    app = PipUpgradeApp(candidates=make_conflicted_candidates(), env=detect_environment())
+    app = PydepApp(candidates=make_conflicted_candidates(), env=detect_environment())
     async with app.run_test() as pilot:
         await pilot.pause()
         # 光标默认在第一行（websockets），Enter 打开版本弹窗
@@ -200,14 +200,14 @@ async def test_version_modal_marks_conflicts():
 
 @pytest.mark.asyncio
 async def test_execute_shows_confirm_modal():
-    app = PipUpgradeApp(candidates=make_candidates(), env=detect_environment())
+    app = PydepApp(candidates=make_candidates(), env=detect_environment())
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("space")
         assert app.selected == {"demo": "1.3.0"}
 
         # 按 e 应弹出确认框（而不是 NoActiveWorker 崩溃）
-        from pip_upgrader.ui.dialog import ConfirmModal
+        from pydep.ui.dialog import ConfirmModal
 
         await pilot.press("e")
         await pilot.pause()
@@ -223,7 +223,7 @@ async def test_execute_shows_confirm_modal():
 
 @pytest.mark.asyncio
 async def test_space_toggle_unselects():
-    app = PipUpgradeApp(candidates=make_candidates(), env=detect_environment())
+    app = PydepApp(candidates=make_candidates(), env=detect_environment())
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("space")
@@ -256,7 +256,7 @@ def make_mixed_candidates() -> list[UpgradeCandidate]:
 @pytest.mark.asyncio
 async def test_filter_upgradable_toggle():
     """按 f 仅显示可升级的包；再次按下恢复显示全部。"""
-    app = PipUpgradeApp(candidates=make_mixed_candidates(), env=detect_environment())
+    app = PydepApp(candidates=make_mixed_candidates(), env=detect_environment())
     async with app.run_test() as pilot:
         await pilot.pause()
         screen = app.screen

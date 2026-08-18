@@ -1,4 +1,4 @@
-# pip-upgrader
+# pydep
 
 交互式终端工具：检查并升级当前 Python 环境的依赖包。
 
@@ -32,20 +32,20 @@ pip install -e .
 
 ```bash
 # 检查并升级当前环境的包
-pip-upgrader
+pydep
 
 # 只检查指定的包
-pip-upgrader -p numpy -p pandas
+pydep -p numpy -p pandas
 
 # 检查其它项目虚拟环境
-pip-upgrader -t /path/to/other/project/.venv/bin/python
+pydep -t /path/to/other/project/.venv/bin/python
 
 # 只检查依赖文件声明的包
-pip-upgrader -r requirements.txt
-pip-upgrader -r pyproject.toml
+pydep -r requirements.txt
+pydep -r pyproject.toml
 
 # 显示所有版本（包括预发布版本）
-pip-upgrader --all
+pydep --all
 ```
 
 ### 完整选项

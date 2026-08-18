@@ -3,15 +3,15 @@
 import os
 import sys
 
-from pip_upgrader.environment import find_project_venv, probe_interpreter
-from pip_upgrader.packages import (
+from pydep.environment import find_project_venv, probe_interpreter
+from pydep.packages import (
     InstalledPackage,
     PyPIInfo,
     parse_dependency_file,
     parse_pyproject,
     parse_requirements_file,
 )
-from pip_upgrader.resolver import build_candidates
+from pydep.resolver import build_candidates
 
 
 def test_parse_requirements_file(tmp_path):
@@ -107,7 +107,7 @@ def test_probe_interpreter_current():
     result = probe_interpreter(sys.executable)
     assert result.env.python_version.startswith(("3.", "2."))
     assert result.env.python_executable == sys.executable
-    assert any(p.name == "pip-upgrader" for p in result.packages)
+    assert any(p.name == "pydep" for p in result.packages)
 
 
 def test_resolver_uninstalled_package_all_versions_are_candidates():
