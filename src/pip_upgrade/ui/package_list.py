@@ -1,0 +1,220 @@
+"""第一级界面：包列表 + 勾选 + 底部摘要与最终命令。"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+
+from rich.text import Text
+from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal
+from textual.screen import Screen
+from textual.widgets import DataTable, Footer, Header, Static
+
+from ..environment import Environment
+from ..resolver import UpgradeCandidate
+from .dialog import ConfirmModal
+from .version_list import VersionModal
+
+
+def copy_to_clipboard(text: str) -> bool:
+    """跨平台复制文本到剪贴板。"""
+    if sys.platform == "darwin":
+        try:
+            subprocess.run(["pbcopy"], input=text.encode(), check=True)
+            return True
+        except (OSError, subprocess.CalledProcessError):
+            return False
+    if sys.platform.startswith("win"):
+        try:
+            subprocess.run(["clip"], input=text.encode(), check=True)
+            return True
+        except (OSError, subprocess.CalledProcessError):
+            return False
+    for cmd in (
+        ["wl-copy"],
+        ["xclip", "-selection", "clipboard"],
+        ["xsel", "--clipboard", "--input"],
+    ):
+        try:
+            subprocess.run(cmd, input=text.encode(), check=True)
+            return True
+        except (OSError, subprocess.CalledProcessError):
+            continue
+    return False
+
+
+class PackageListScreen(Screen[None]):
+    """主界面：第一级选择包，第二级（弹窗）选择版本。"""
+
+    BINDINGS = [
+        Binding("space", "toggle", "选择"),
+        Binding("c", "copy_command", "复制"),
+        Binding("e", "execute", "执行"),
+    ]
+
+    def __init__(self, candidates: list[UpgradeCandidate], env: Environment) -> None:
+        super().__init__()
+        self.candidates = candidates
+        self.env = env
+        self._row_key_by_name: dict[str, object] = {}
+        self._name_by_row_key: dict[object, str] = {}
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=False)
+        yield Static(self.env.describe(), id="env-info")
+        yield Static(
+            "[dim]Space 勾选包（选最新兼容版） · Enter 打开该包的版本列表 · ↑↓ 移动光标[/dim]",
+            id="hint",
+        )
+        yield DataTable(id="package-table")
+        with Horizontal(id="bottom"):
+            yield Static("已选择：\n（无）", id="summary")
+            yield Static("最终命令：\n（请先选择包）", id="command")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        table = self.query_one(DataTable)
+        table.cursor_type = "row"
+        table.add_column("选择", key="sel")
+        table.add_column("包", key="name")
+        table.add_column("当前版本", key="current")
+        table.add_column("最新", key="latest")
+        table.add_column("候选版本", key="options")
+
+        for cand in self.candidates:
+            name = cand.package.name
+            if cand.upgradable:
+                cells = [
+                    Text("[ ]"),
+                    Text(name, style="bold"),
+                    Text(cand.package.version or "未安装", style="dim" if cand.package.version is None else ""),
+                    Text(cand.latest or "", style="bold green"),
+                    Text(f"{len(cand.options)} 个", style="cyan"),
+                ]
+            elif cand.on_pypi:
+                cells = [
+                    Text("[ ]"),
+                    Text(name),
+                    Text(cand.package.version or "未安装", style="dim" if cand.package.version is None else ""),
+                    Text("无更高版本", style="dim"),
+                    Text("-", style="dim"),
+                ]
+            else:
+                cells = [
+                    Text("[ ]"),
+                    Text(name),
+                    Text(cand.package.version or "未安装", style="dim" if cand.package.version is None else ""),
+                    Text("不在 PyPI", style="red"),
+                    Text("-", style="dim"),
+                ]
+            row_key = table.add_row(*cells, key=name)
+            self._row_key_by_name[name] = row_key
+            self._name_by_row_key[row_key] = name
+
+        table.focus()
+
+    # ---- 交互 ----
+
+    def action_toggle(self) -> None:
+        table = self.query_one(DataTable)
+        coord = table.coordinate_to_cell_key(table.cursor_coordinate)
+        name = self._name_by_row_key.get(coord.row_key)
+        if name is None:
+            return
+        selected = self.app.selected  # type: ignore[attr-defined]
+        if name in selected:
+            del selected[name]
+        else:
+            cand = self.app.candidates_by_name[name]  # type: ignore[attr-defined]
+            if cand.options:
+                # 默认选中第一个（最新兼容版本）
+                selected[name] = cand.options[0].version
+            else:
+                self.notify(f"{name} 没有可升级的版本", severity="warning")
+                return
+        self._update_row(name)
+        self._update_summary()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        # Enter 选中一行 -> 打开该包的版本选择
+        self.run_worker(self._open_versions(event.row_key.value), exclusive=True)
+
+    async def _open_versions(self, name: str) -> None:
+        cand = self.app.candidates_by_name[name]  # type: ignore[attr-defined]
+        if not cand.on_pypi:
+            self.notify(f"{name} 不在 PyPI 上，无法升级", severity="warning")
+            return
+        if not cand.options:
+            self.notify(f"{name} 没有可升级的版本", severity="warning")
+            return
+        current = self.app.selected.get(name)  # type: ignore[attr-defined]
+        result = await self.app.push_screen_wait(  # type: ignore[attr-defined]
+            VersionModal(cand, current_version=current)
+        )
+        if result:
+            self.app.selected[name] = result  # type: ignore[attr-defined]
+            self._update_row(name)
+            self._update_summary()
+
+    def action_copy_command(self) -> None:
+        cmd = self._build_command()
+        if not cmd:
+            self.notify("还没有选择任何升级", severity="warning")
+            return
+        if copy_to_clipboard(" ".join(cmd)):
+            self.notify("命令已复制到剪贴板")
+        else:
+            self.notify("复制失败：未找到可用的剪贴板工具", severity="error")
+
+    def action_execute(self) -> None:
+        cmd = self._build_command()
+        if not cmd:
+            self.notify("还没有选择任何升级", severity="warning")
+            return
+        # push_screen_wait 必须在 worker 中调用
+        self.run_worker(self._confirm_execute(cmd), exclusive=True)
+
+    async def _confirm_execute(self, cmd: list[str]) -> None:
+        confirm = await self.app.push_screen_wait(  # type: ignore[attr-defined]
+            ConfirmModal(
+                f"[bold]执行:[/bold] [cyan]{' '.join(cmd)}[/cyan]\n\n"
+                "[bold red]此操作会安装/升级当前环境中的包！[/bold red]"
+            )
+        )
+        if confirm:
+            self.app.exit({"execute": True, "pins": self._pins()})  # type: ignore[attr-defined]
+
+    # ---- 内部 ----
+
+    def _pins(self) -> list[str]:
+        return [f"{n}=={v}" for n, v in self.app.selected.items()]  # type: ignore[attr-defined]
+
+    def _build_command(self) -> list[str]:
+        pins = self._pins()
+        if not pins:
+            return []
+        return ["pip", "install", *pins]
+
+    def _update_row(self, name: str) -> None:
+        table = self.query_one(DataTable)
+        row_key = self._row_key_by_name[name]
+        marked = name in self.app.selected  # type: ignore[attr-defined]
+        table.update_cell(
+            row_key,
+            "sel",
+            Text("[✓]" if marked else "[ ]", style="bold green" if marked else ""),
+            update_width=False,
+        )
+
+    def _update_summary(self) -> None:
+        pins = self._pins()
+        if pins:
+            summary = "已选择：\n" + "\n".join(f"[green]{p}[/green]" for p in pins)
+            command = "最终命令：\n" + " ".join(["pip", "install", *pins])
+        else:
+            summary = "已选择：\n（无）"
+            command = "最终命令：\n（请先选择包）"
+        self.query_one("#summary", Static).update(summary)
+        self.query_one("#command", Static).update(command)
