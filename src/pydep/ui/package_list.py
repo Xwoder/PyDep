@@ -50,11 +50,12 @@ class PackageListScreen(Screen[None]):
     """主界面：第一级选择包，第二级（弹窗）选择版本。"""
 
     BINDINGS = [
-        Binding("space", "toggle", "选择"),
+        Binding("space", "toggle", "选中"),
         Binding("c", "copy_command", "复制"),
         Binding("e", "execute", "执行"),
-        Binding("f", "filter_upgradable", "仅显示可升级"),
+        Binding("f", "filter_upgradable", "过滤"),
         Binding("k", "clear_cache", "清理缓存"),
+        Binding("q", "quit", "退出"),
     ]
 
     def __init__(self, candidates: list[UpgradeCandidate], env: Environment) -> None:
@@ -160,7 +161,7 @@ class PackageListScreen(Screen[None]):
         self._filter_upgradable = not self._filter_upgradable
         self._rebuild_table()
         if self._filter_upgradable:
-            self.notify("仅显示可升级的包（再按 f 显示全部）")
+            self.notify("仅显示可升级的包")
         else:
             self.notify("已显示全部包")
 
