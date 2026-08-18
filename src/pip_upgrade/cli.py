@@ -2,6 +2,7 @@
 
 流程：
     1. 确定检查对象：当前环境 / 指定解释器（--target）/ 项目依赖文件（--requirements）
+       —— 不带 --target 时，自动在当前目录（及其父目录）发现项目虚拟环境
     2. 列出（或解析出）待检查的包
     3. 并发查询 PyPI
     4. 计算升级候选
@@ -18,7 +19,7 @@ import typer
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
-from .environment import detect_environment, probe_interpreter
+from .environment import detect_environment, find_project_venv, probe_interpreter
 from .packages import (
     InstalledPackage,
     fetch_pypi_info_many,
@@ -68,20 +69,32 @@ def main(
     """交互式升级指定环境或项目的依赖。"""
 
     env = detect_environment()
-    if target:
+
+    def probe_target(python: str) -> None:
+        nonlocal env, installed
         try:
-            probe = probe_interpreter(target)
+            probe = probe_interpreter(python)
         except (OSError, RuntimeError) as exc:
             console.print(f"[red]无法探测目标解释器:[/red] {exc}")
             raise typer.Exit(1) from exc
         env = probe.env
         installed = probe.packages
+
+    if target:
+        probe_target(target)
         console.print(f"[bold]目标环境:[/bold] {env.describe()}")
         console.print(f"[bold]目标解释器:[/bold] {env.python_executable}")
     else:
-        installed = list_installed()
-        console.print(f"[bold]环境:[/bold] {env.describe()}")
-        console.print(f"[bold]解释器:[/bold] {env.python_executable}")
+        auto_target = find_project_venv()
+        if auto_target:
+            probe_target(auto_target)
+            console.print(f"[bold]自动检测到项目虚拟环境:[/bold] {env.describe()}")
+            console.print(f"[bold]解释器:[/bold] {env.python_executable}")
+            console.print("[dim]提示: 想检查当前 shell 环境时，可用 --target 显式指定或到其它目录执行[/dim]")
+        else:
+            installed = list_installed()
+            console.print(f"[bold]环境:[/bold] {env.describe()}")
+            console.print(f"[bold]解释器:[/bold] {env.python_executable}")
 
     # 从依赖文件解析，只保留文件声明的包；未安装的以 version=None 占位
     if requirements:

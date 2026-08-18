@@ -1,8 +1,9 @@
 """检查其它项目：依赖文件解析 + 目标解释器探测 + 未安装包处理。"""
 
+import os
 import sys
 
-from pip_upgrade.environment import probe_interpreter
+from pip_upgrade.environment import find_project_venv, probe_interpreter
 from pip_upgrade.packages import (
     InstalledPackage,
     PyPIInfo,
@@ -61,6 +62,45 @@ def test_parse_dependency_file_auto_detect(tmp_path):
     toml = tmp_path / "pyproject.toml"
     toml.write_text('[project]\ndependencies = ["numpy"]\n')
     assert parse_dependency_file(toml) == ["numpy"]
+
+
+def _make_venv(root, name, exe="python"):
+    """在 root 下创建名为 name 的伪虚拟环境目录，返回其 python 路径。"""
+    if os.name == "nt":
+        exe = "python.exe"
+        bin_dir = os.path.join(root, name, "Scripts")
+    else:
+        bin_dir = os.path.join(root, name, "bin")
+    os.makedirs(bin_dir, exist_ok=True)
+    python = os.path.join(bin_dir, exe)
+    with open(python, "w", encoding="utf-8") as f:
+        f.write("")
+    return python
+
+
+def test_find_project_venv_in_current_dir(tmp_path):
+    _make_venv(str(tmp_path), ".venv2")
+    python = find_project_venv(start_dir=str(tmp_path))
+    assert python == os.path.join(str(tmp_path), ".venv2", "bin", "python")
+
+
+def test_find_project_venv_prefers_dot_venv(tmp_path):
+    _make_venv(str(tmp_path), "venv")
+    _make_venv(str(tmp_path), ".venv")
+    python = find_project_venv(start_dir=str(tmp_path))
+    assert python.endswith(os.path.join(".venv", "bin", "python"))
+
+
+def test_find_project_venv_walks_up_parents(tmp_path):
+    _make_venv(str(tmp_path), ".venv")
+    nested = tmp_path / "a" / "b"
+    nested.mkdir(parents=True)
+    python = find_project_venv(start_dir=str(nested))
+    assert python.endswith(os.path.join(".venv", "bin", "python"))
+
+
+def test_find_project_venv_none_when_missing(tmp_path):
+    assert find_project_venv(start_dir=str(tmp_path)) is None
 
 
 def test_probe_interpreter_current():
