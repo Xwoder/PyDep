@@ -25,7 +25,7 @@ from .packages import (
     list_installed,
     parse_dependency_file,
 )
-from .resolver import build_candidates
+from .resolver import build_candidates, check_reverse_dep_conflicts
 from .ui.app import PipUpgradeApp
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, rich_markup_mode="rich")
@@ -189,6 +189,14 @@ def main(
     result = ui_app.run()
 
     if result and result.get("execute"):
+        conflicts: list[str] = []
+        for pin in result["pins"]:
+            name, _, version = pin.partition("==")
+            conflicts.extend(check_reverse_dep_conflicts(installed, name, version))
+        if conflicts:
+            console.print("[bold yellow]依赖冲突警告（pip 不会自动拦截，请确认）：[/bold yellow]")
+            for line in conflicts:
+                console.print(f"[yellow]  - {line}[/yellow]")
         cmd = [env.python_executable, "-m", "pip", "install", *result["pins"]]
         console.print(f"\n[bold cyan]执行:[/bold cyan] {' '.join(cmd)}")
         raise SystemExit(subprocess.run(cmd).returncode)

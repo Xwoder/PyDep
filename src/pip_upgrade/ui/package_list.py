@@ -13,7 +13,7 @@ from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
 from ..environment import Environment
-from ..resolver import UpgradeCandidate
+from ..resolver import UpgradeCandidate, check_reverse_dep_conflicts
 from .dialog import ConfirmModal
 from .version_list import VersionModal
 
@@ -180,13 +180,22 @@ class PackageListScreen(Screen[None]):
         confirm = await self.app.push_screen_wait(  # type: ignore[attr-defined]
             ConfirmModal(
                 f"[bold]执行:[/bold] [cyan]{' '.join(cmd)}[/cyan]\n\n"
-                "[bold red]此操作会安装/升级当前环境中的包！[/bold red]"
+                "[bold red]此操作会安装/升级当前环境中的包！[/bold red]",
+                warnings=self._collect_conflicts(),
             )
         )
         if confirm:
             self.app.exit({"execute": True, "pins": self._pins()})  # type: ignore[attr-defined]
 
     # ---- 内部 ----
+
+    def _collect_conflicts(self) -> list[str]:
+        """检查已选的升级是否与环境中其它已安装包的依赖约束冲突。"""
+        installed = [c.package for c in self.candidates]
+        conflicts: list[str] = []
+        for name, version in self.app.selected.items():  # type: ignore[attr-defined]
+            conflicts.extend(check_reverse_dep_conflicts(installed, name, version))
+        return conflicts
 
     def _pins(self) -> list[str]:
         return [f"{n}=={v}" for n, v in self.app.selected.items()]  # type: ignore[attr-defined]

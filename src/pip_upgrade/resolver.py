@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
+
 from .packages import InstalledPackage, PyPIInfo
 from .versions import compatible_with_python, is_prerelease, sort_versions, version_gt
 
@@ -113,3 +116,39 @@ def build_candidates(
         candidates.append(UpgradeCandidate(package=pkg, info=info, options=visible))
 
     return candidates
+
+
+def check_reverse_dep_conflicts(
+    installed: list[InstalledPackage],
+    target_name: str,
+    new_version: str,
+) -> list[str]:
+    """检查把 target_name 升级到 new_version 是否会破坏其它已安装包的依赖约束。
+
+    通过其它已安装包的 Requires-Dist 元数据（即它们的正向依赖）反向匹配目标包，
+    用 SpecifierSet 校验新版本是否满足约束。返回冲突描述列表，空列表表示无冲突。
+
+    注意：仅能发现「已安装包声明的直接版本约束」。pip 在 pip install 时本身
+    也不做这种保护（pip 的已知行为），因此本检查是对用户的超前提醒。
+    """
+    conflicts: list[str] = []
+    target = canonicalize_name(target_name)
+    for pkg in installed:
+        if canonicalize_name(pkg.name) == target:
+            continue
+        for spec in pkg.requires or []:
+            try:
+                req = Requirement(spec)
+            except InvalidRequirement:
+                continue
+            if canonicalize_name(req.name) != target:
+                continue
+            # specifier 为空表示不限版本，不构成约束
+            if req.specifier and not req.specifier.contains(
+                new_version, prereleases=True
+            ):
+                conflicts.append(
+                    f"{pkg.name} {pkg.version} 要求 {spec}，"
+                    f"但 {target_name}=={new_version} 不满足"
+                )
+    return conflicts

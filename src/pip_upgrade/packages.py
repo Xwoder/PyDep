@@ -40,6 +40,8 @@ class InstalledPackage:
     name: str
     version: str | None
     summary: str = ""
+    # 该包声明的所有依赖条目（Requires-Dist，形如 "websockets<16,>=14"）
+    requires: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -67,6 +69,7 @@ def list_installed(skip: set[str] | None = None) -> list[InstalledPackage]:
                 name=name,
                 version=dist.version,
                 summary=(dist.metadata.get("Summary") or "").strip(),
+                requires=list(dist.requires or []),
             )
         )
     packages.sort(key=lambda p: p.name)
@@ -259,6 +262,7 @@ for dist in metadata.distributions():
         "name": name,
         "version": dist.version,
         "summary": (dist.metadata.get("Summary") or "").strip(),
+        "requires": dist.requires or [],
     })
 packages.sort(key=lambda p: p["name"])
 print(json.dumps({

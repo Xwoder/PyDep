@@ -1,7 +1,7 @@
 """resolver / packages 模块的单元测试。"""
 
 from pip_upgrade.packages import InstalledPackage, PyPIInfo
-from pip_upgrade.resolver import build_candidates
+from pip_upgrade.resolver import build_candidates, check_reverse_dep_conflicts
 
 
 def make_info(name: str, latest: str, releases: dict[str, str | None]) -> PyPIInfo:
@@ -93,3 +93,57 @@ def test_max_options_limit():
     cand = build_candidates([pkg], {"demo": info}, "3.10", max_options=3)[0]
     assert len(cand.options) == 3
     assert cand.options[0].version == "9.0"
+
+
+# ---- check_reverse_dep_conflicts ----
+
+
+def make_pkg(name: str, version: str | None, requires: list[str] | None = None) -> InstalledPackage:
+    return InstalledPackage(name=name, version=version, requires=list(requires or []))
+
+
+def test_reverse_dep_conflict_detected():
+    """其它包对目标包的版本约束与新版本不兼容时报告冲突（如 websockets 案例）。"""
+    installed = [
+        make_pkg("langgraph-sdk", "0.4.2", ["websockets<16,>=14"]),
+        make_pkg("websockets", "15.0.1"),
+    ]
+    conflicts = check_reverse_dep_conflicts(installed, "websockets", "16.0")
+    assert len(conflicts) == 1
+    assert "websockets<16,>=14" in conflicts[0]
+    assert "16.0" in conflicts[0]
+
+
+def test_reverse_dep_conflict_none_when_satisfied():
+    installed = [
+        make_pkg("langgraph-sdk", "0.4.2", ["websockets<16,>=14"]),
+        make_pkg("websockets", "15.0.1"),
+    ]
+    assert check_reverse_dep_conflicts(installed, "websockets", "15.0.2") == []
+
+
+def test_reverse_dep_ignores_self_and_unrelated():
+    """不检查目标包自身声明的依赖；其它包不依赖目标包时无冲突。"""
+    installed = [
+        make_pkg("websockets", "15.0.1", ["httpx>=0.20"]),
+        make_pkg("urllib3", "2.0", []),
+    ]
+    assert check_reverse_dep_conflicts(installed, "websockets", "16.0") == []
+
+
+def test_reverse_dep_normalizes_names():
+    """包名按 PEP 503 规范化后匹配（大小写/下划线）。"""
+    installed = [make_pkg("some-tool", "1.0", ["JSON_Repair>=2.0"])]
+    conflicts = check_reverse_dep_conflicts(installed, "json-repair", "1.5")
+    assert len(conflicts) == 1
+
+
+def test_reverse_dep_unpinned_is_not_conflict():
+    """无版本约束的依赖声明不算冲突。"""
+    installed = [make_pkg("app", "1.0", ["websockets"])]
+    assert check_reverse_dep_conflicts(installed, "websockets", "16.0") == []
+
+
+def test_reverse_dep_invalid_requirement_ignored():
+    installed = [make_pkg("app", "1.0", ["not a valid req !!"])]
+    assert check_reverse_dep_conflicts(installed, "anything", "1.0") == []

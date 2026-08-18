@@ -80,6 +80,11 @@ VersionModal, ConfirmModal {
     color: $text-muted;
 }
 
+#confirm-warnings {
+    margin-top: 1;
+    color: $error;
+}
+
 #version-header {
     margin-bottom: 1;
 }
