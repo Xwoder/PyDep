@@ -188,9 +188,9 @@ async def test_version_modal_marks_conflicts():
 
         lv = modal.query_one("#version-list", ListView)
         labels = [child.query_one(Label) for child in lv.children]
-        # 冲突版本标红：内容带 ! 标记，且设置了悬停详情
-        assert "!" in str(labels[0].content)  # 16.0
-        assert "!" not in str(labels[1].content)  # 15.1.0
+        # 冲突版本标红：内容带 [incompatible] 标记，且设置了悬停详情
+        assert "[incompatible]" in str(labels[0].content)  # 16.0
+        assert "[incompatible]" not in str(labels[1].content)  # 15.1.0
         assert labels[0].tooltip and "websockets<16,>=14" in str(labels[0].tooltip)
         assert not labels[1].tooltip
 

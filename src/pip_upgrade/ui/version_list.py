@@ -66,12 +66,12 @@ class VersionModal(ModalScreen[str | None]):
             header.append(f"\nRequires-Python: {rp}", style="dim")
         if self._conflicts:
             header.append(
-                f"\n{len(self._conflicts)} 个版本与已安装包依赖冲突（标红，可悬停查看详情）",
+                f"\n{len(self._conflicts)} 个版本与已安装包依赖冲突",
                 style="bold red",
             )
         if self._yanked:
             header.append(
-                f"\n{len(self._yanked)} 个版本已被发布者 yanked（撤回），标黄显示，谨慎安装",
+                f"\n{len(self._yanked)} 个版本已被发布者撤回",
                 style="bold yellow",
             )
         items = [ListItem(Label(str(v))) for v in self._versions]
@@ -130,7 +130,7 @@ class VersionModal(ModalScreen[str | None]):
             text.append("● " if selected else "○ ", style="bold green" if selected else "dim")
             if conflicts:
                 text.append(version, style="bold red")
-                text.append("  !", style="bold red")
+                text.append("  [incompatible]", style="bold red")
                 if is_yanked:
                     text.append("  [yanked]", style="bold yellow")
             elif is_yanked:
