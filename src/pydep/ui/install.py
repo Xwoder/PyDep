@@ -76,11 +76,19 @@ class InstallScreen(Screen[None]):
         status = self.query_one("#install-status", Static)
         log.write(f"$ {shlex.join(self._cmd)}")
 
-        proc = await asyncio.create_subprocess_exec(
-            *self._cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *self._cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except (OSError, ValueError) as exc:
+            # pip 无法启动（如解释器缺失）时立即恢复 UI，避免「安装中」永久卡死
+            self.app.installing = False  # type: ignore[attr-defined]
+            status.update(
+                f"[bold red]无法启动安装命令：{exc}[/bold red]  按 Esc 返回列表"
+            )
+            return
         assert proc.stdout is not None and proc.stderr is not None
 
         async def pump(stream: asyncio.StreamReader) -> None:
@@ -92,9 +100,21 @@ class InstallScreen(Screen[None]):
                 if text:
                     log.write(text)
 
-        await asyncio.gather(pump(proc.stdout), pump(proc.stderr))
-        returncode = await proc.wait()
-        self.app.installing = False  # type: ignore[attr-defined]
+        error: str | None = None
+        try:
+            await asyncio.gather(pump(proc.stdout), pump(proc.stderr))
+            returncode = await proc.wait()
+        except Exception as exc:
+            error = str(exc)
+        finally:
+            # 无论成功失败（含异常），都必须恢复 UI 状态
+            self.app.installing = False  # type: ignore[attr-defined]
+
+        if error is not None:
+            status.update(
+                f"[bold red]安装过程出错：{error}[/bold red]  按 Esc 返回列表"
+            )
+            return
         if returncode == 0:
             status.update("[bold green]安装完成[/bold green]  按 Esc 返回列表")
             # 安装成功后异步刷新包列表中的当前版本

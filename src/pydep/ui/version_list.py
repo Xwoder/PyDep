@@ -10,7 +10,11 @@ from textual.screen import ModalScreen
 from textual.widgets import Label, ListItem, ListView, Static
 
 from ..packages import InstalledPackage
-from ..resolver import UpgradeCandidate, check_reverse_dep_conflicts
+from ..resolver import (
+    UpgradeCandidate,
+    build_reverse_dep_index,
+    check_reverse_dep_conflicts_index,
+)
 
 
 class VersionModal(ModalScreen[str | None]):
@@ -43,9 +47,11 @@ class VersionModal(ModalScreen[str | None]):
         self._conflicts: dict[str, list[str]] = {}
         # 被发布者 yanked（撤回）的版本集合
         self._yanked: set[str] = set()
+        # 预建一次索引供所有候选版本复用，避免逐版本重复解析依赖
+        index = build_reverse_dep_index(installed or [])
         for opt in candidate.options:
-            cs = check_reverse_dep_conflicts(
-                installed or [], candidate.package.name, opt.version
+            cs = check_reverse_dep_conflicts_index(
+                index, candidate.package.name, opt.version
             )
             if cs:
                 self._conflicts[opt.version] = cs

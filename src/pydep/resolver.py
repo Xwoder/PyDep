@@ -10,10 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.specifiers import SpecifierSet
 from packaging.utils import canonicalize_name
+from packaging.version import Version
 
 from .packages import InstalledPackage, PyPIInfo
-from .versions import compatible_with_python, is_prerelease, sort_versions, version_gt
+from .versions import parse
 
 
 @dataclass
@@ -65,6 +67,28 @@ def _release_yanked(info: PyPIInfo, version: str) -> bool:
     return any(f.get("yanked") for f in info.releases.get(version) or [])
 
 
+def _compatible_with_cached(
+    requires_python: str | None,
+    python_version: str,
+    cache: dict[str, SpecifierSet],
+) -> bool:
+    """等价于 versions.compatible_with_python，但按声明字符串缓存 SpecifierSet。"""
+    if not requires_python:
+        return True
+    spec = cache.get(requires_python)
+    if spec is None:
+        try:
+            spec = SpecifierSet(requires_python)
+        except Exception:
+            # 无法解析的声明按「未知」处理，不过滤
+            return True
+        cache[requires_python] = spec
+    try:
+        return python_version in spec
+    except Exception:
+        return True
+
+
 def _build_options(
     info: PyPIInfo,
     installed: str | None,
@@ -81,17 +105,29 @@ def _build_options(
     3. 默认过滤预发布版本（除非当前装的就是预发布版，或显式放行）；
     4. yanked 版本保留但排在列表末尾（供 UI 标记提示，截断时优先保留非 yanked）。
     """
-    installed_pre = is_prerelease(installed) if installed else False
+    # 一次性解析所有版本与当前已装版本，避免循环内重复构建 Version 对象
+    installed_v = parse(installed) if installed else None
+    installed_pre = installed_v.is_prerelease if installed_v else False
+
+    parsed: list[tuple[Version, str]] = []
+    for version in info.versions():
+        v = parse(version)
+        if v is not None:
+            parsed.append((v, version))
+    parsed.sort(key=lambda item: item[0], reverse=True)
+
+    # 同一声明字符串只解析一次 Requires-Python
+    rp_specs: dict[str, SpecifierSet] = {}
 
     options: list[UpgradeOption] = []
-    for version in sort_versions(info.versions()):
+    for v, version in parsed:
         requires_python = _release_requires_python(info, version)
-        if not compatible_with_python(requires_python, python_version):
+        if not _compatible_with_cached(requires_python, python_version, rp_specs):
             continue
         # 未安装的包（version 为 None）所有版本都是候选
-        if installed is not None and not version_gt(version, installed):
+        if installed_v is not None and v <= installed_v:
             continue
-        if is_prerelease(version) and not installed_pre and not allow_prerelease:
+        if v.is_prerelease and not installed_pre and not allow_prerelease:
             continue
         options.append(
             UpgradeOption(
@@ -158,6 +194,67 @@ def refresh_candidate_options(
         )
 
 
+@dataclass(frozen=True)
+class ReverseDepConstraint:
+    """一个已安装包对某个目标包声明的版本约束（预解析结果）。"""
+
+    pkg_name: str
+    pkg_version: str | None
+    spec: str
+    # None 表示无版本限制，不构成约束
+    specifier: SpecifierSet | None
+
+
+def build_reverse_dep_index(
+    installed: list[InstalledPackage],
+) -> dict[str, list[ReverseDepConstraint]]:
+    """一次性解析所有已安装包的依赖约束，按键为规范化的目标包名索引。
+
+    对同一批包检查多个候选版本时（如版本弹窗），预建索引可避免
+    每个版本都重复遍历安装包并重新解析 Requirement。
+    """
+    index: dict[str, list[ReverseDepConstraint]] = {}
+    for pkg in installed:
+        for spec in pkg.requires or []:
+            try:
+                req = Requirement(spec)
+            except InvalidRequirement:
+                continue
+            # 忽略目标包对自身的依赖声明（不自构成反向依赖）
+            if canonicalize_name(pkg.name) == canonicalize_name(req.name):
+                continue
+            index.setdefault(canonicalize_name(req.name), []).append(
+                ReverseDepConstraint(
+                    pkg_name=pkg.name,
+                    pkg_version=pkg.version,
+                    spec=spec,
+                    specifier=req.specifier if req.specifier else None,
+                )
+            )
+    return index
+
+
+def check_reverse_dep_conflicts_index(
+    index: dict[str, list[ReverseDepConstraint]],
+    target_name: str,
+    new_version: str,
+) -> list[str]:
+    """基于预建索引检查把 target_name 升级到 new_version 的依赖冲突。
+
+    返回冲突描述列表，空列表表示无冲突。
+    """
+    target = canonicalize_name(target_name)
+    conflicts: list[str] = []
+    for c in index.get(target, []):
+        # specifier 为空表示不限版本，不构成约束
+        if c.specifier and not c.specifier.contains(new_version, prereleases=True):
+            conflicts.append(
+                f"{c.pkg_name} {c.pkg_version} 要求 {c.spec}，"
+                f"但 {target_name}=={new_version} 不满足"
+            )
+    return conflicts
+
+
 def check_reverse_dep_conflicts(
     installed: list[InstalledPackage],
     target_name: str,
@@ -171,24 +268,6 @@ def check_reverse_dep_conflicts(
     注意：仅能发现「已安装包声明的直接版本约束」。pip 在 pip install 时本身
     也不做这种保护（pip 的已知行为），因此本检查是对用户的超前提醒。
     """
-    conflicts: list[str] = []
-    target = canonicalize_name(target_name)
-    for pkg in installed:
-        if canonicalize_name(pkg.name) == target:
-            continue
-        for spec in pkg.requires or []:
-            try:
-                req = Requirement(spec)
-            except InvalidRequirement:
-                continue
-            if canonicalize_name(req.name) != target:
-                continue
-            # specifier 为空表示不限版本，不构成约束
-            if req.specifier and not req.specifier.contains(
-                new_version, prereleases=True
-            ):
-                conflicts.append(
-                    f"{pkg.name} {pkg.version} 要求 {spec}，"
-                    f"但 {target_name}=={new_version} 不满足"
-                )
-    return conflicts
+    return check_reverse_dep_conflicts_index(
+        build_reverse_dep_index(installed), target_name, new_version
+    )
