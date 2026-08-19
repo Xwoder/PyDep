@@ -3,7 +3,7 @@
 import pytest
 from textual.widgets import DataTable, Label, ListView, Static
 
-from pydep.environment import Environment, detect_environment
+from pydep.environment import Environment, PipVenvEnvironment, UvEnvironment, detect_environment
 from pydep.packages import InstalledPackage, PyPIInfo
 from pydep.resolver import UpgradeCandidate, UpgradeOption
 from pydep.ui.app import PydepApp
@@ -287,13 +287,20 @@ async def test_filter_upgradable_toggle():
 
 
 def _make_env(is_uv: bool) -> Environment:
-    return Environment(
+    if is_uv:
+        return UvEnvironment(
+            python_version="3.12.3",
+            python_executable="/path/.venv/bin/python",
+            pip_executable="/path/.venv/bin/pip",
+            is_venv=True,
+            venv_name=".venv",
+        )
+    return PipVenvEnvironment(
         python_version="3.12.3",
         python_executable="/path/.venv/bin/python",
         pip_executable="/path/.venv/bin/pip",
         is_venv=True,
         venv_name=".venv",
-        is_uv=is_uv,
     )
 
 

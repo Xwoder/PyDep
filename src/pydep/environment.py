@@ -2,6 +2,14 @@
 
 这个工具最终操作的是「当前 Python environment」而不是系统 Python，
 所以第一步必须搞清楚：我到底在哪个环境里？
+
+``Environment`` 按「包管理器」拆成多态子类（方案 A）：
+- ``UvEnvironment``：uv 管理，命令走 ``uv``；
+- ``PipVenvEnvironment``：普通虚拟环境，命令走 ``python -m pip``；
+- ``SystemEnvironment``：系统 Python，命令同 pip，描述标注系统环境。
+
+工厂函数 ``detect_environment()`` / ``probe_interpreter()`` 在探测阶段就返回
+对应的具体子类，调用方无需再关心 ``is_uv`` / ``is_venv`` 分支。
 """
 
 from __future__ import annotations
@@ -11,24 +19,28 @@ import os
 import platform
 import subprocess
 import sys
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from .packages import PROBE_SCRIPT, InstalledPackage
 
 #: 虚拟环境内标记解释器的相对路径（Unix / Windows）
-VENV_BIN_RELPATHS = ("bin/python", "Scripts/python.exe")
+VENV_BIN_RELPATHS: tuple[str, ...] = ("bin/python", "Scripts/python.exe")
 
 
 @dataclass(frozen=True)
-class Environment:
-    """描述当前运行所在的 Python 环境。"""
+class Environment(ABC):
+    """描述当前运行所在的 Python 环境（按包管理器多态的抽象基类）。
+
+    数据字段描述环境的「结构性事实」（版本、解释器路径、是否 venv）；
+    行为（怎么装包、怎么描述）由各子类按管理方式实现。
+    """
 
     python_version: str
     python_executable: str
     pip_executable: str
     is_venv: bool
     venv_name: str | None
-    is_uv: bool = False
 
     @property
     def python_version_short(self) -> str:
@@ -39,14 +51,81 @@ class Environment:
         return self.python_version
 
     @property
-    def pip_command(self) -> list[str]:
-        """推荐的安装器调用方式。
+    @abstractmethod
+    def is_uv(self) -> bool:
+        """是否由 uv 管理（UI 层用于能力判断：是否可切换安装模式）。"""
 
-        uv 管理的环境用 `uv pip`（其 .venv 默认不装 pip），
-        否则走当前解释器的 `-m pip`。
+    @property
+    @abstractmethod
+    def pip_command(self) -> list[str]:
+        """推荐的安装器调用方式。"""
+
+    @abstractmethod
+    def install_command(
+        self,
+        pins: list[str],
+        mode: str = "pip",
+        mirror: dict[str, str] | None = None,
+    ) -> list[str]:
+        """构建完整的安装命令。"""
+
+    @abstractmethod
+    def describe(self) -> str:
+        """一行人类可读的环境描述。"""
+
+    def _describe(self, manager: str) -> str:
+        """拼 describe 的公共部分：`Python 版本 · 管理器（· venv 名）`。"""
+        parts = [f"Python {self.python_version}", manager]
+        if self.is_venv and self.venv_name:
+            parts.append(f"venv: {self.venv_name}")
+        return " · ".join(parts)
+
+
+@dataclass(frozen=True)
+class UvEnvironment(Environment):
+    """由 uv 管理的虚拟环境（其 .venv 默认不装 pip，命令走 uv）。"""
+
+    @property
+    def is_uv(self) -> bool:
+        return True
+
+    @property
+    def pip_command(self) -> list[str]:
+        return ["uv", "pip"]
+
+    def install_command(
+        self,
+        pins: list[str],
+        mode: str = "pip",
+        mirror: dict[str, str] | None = None,
+    ) -> list[str]:
+        """mode="pip" 时 `uv pip install ...`（仅改环境）；
+        mode="add" 时 `uv add ...`（同步写入 pyproject.toml 并更新 uv.lock）；
+        镜像参数用 uv 的 `--index-url`。
         """
-        if self.is_uv:
-            return ["uv", "pip"]
+        cmd: list[str] = (
+            ["uv", "add", *pins]
+            if mode == "add"
+            else ["uv", "pip", "install", *pins]
+        )
+        if mirror:
+            cmd.extend(["--index-url", mirror["url"]])
+        return cmd
+
+    def describe(self) -> str:
+        return self._describe("uv 管理")
+
+
+@dataclass(frozen=True)
+class PipVenvEnvironment(Environment):
+    """普通虚拟环境：用当前解释器的 `python -m pip` 安装。"""
+
+    @property
+    def is_uv(self) -> bool:
+        return False
+
+    @property
+    def pip_command(self) -> list[str]:
         return [self.python_executable, "-m", "pip"]
 
     def install_command(
@@ -55,37 +134,22 @@ class Environment:
         mode: str = "pip",
         mirror: dict[str, str] | None = None,
     ) -> list[str]:
-        """构建完整的安装命令。
-
-        - 普通环境：`python -m pip install ...`
-        - uv 管理环境：mode="pip" 时 `uv pip install ...`（仅改环境）；
-          mode="add" 时 `uv add ...`（同步写入 pyproject.toml 并更新 uv.lock）
-        - mirror 非空时追加索引参数：uv 用 `--index-url`，pip 用 `-i`
-        """
-        if self.is_uv:
-            cmd: list[str] = (
-                ["uv", "add", *pins]
-                if mode == "add"
-                else ["uv", "pip", "install", *pins]
-            )
-        else:
-            cmd = [self.python_executable, "-m", "pip", "install", *pins]
+        # 普通环境固定走 python -m pip install，mode 参数仅 uv 环境生效
+        cmd: list[str] = [self.python_executable, "-m", "pip", "install", *pins]
         if mirror:
-            index_flag = "--index-url" if self.is_uv else "-i"
-            cmd.extend([index_flag, mirror["url"]])
+            cmd.extend(["-i", mirror["url"]])
         return cmd
 
     def describe(self) -> str:
-        parts = [f"Python {self.python_version}"]
-        if self.is_uv:
-            parts.append("uv 管理")
-        elif self.is_venv and self.venv_name:
-            parts.append("pip 管理")
-        else:
-            parts.append("系统环境")
-        if self.is_venv and self.venv_name:
-            parts.append(f"venv: {self.venv_name}")
-        return " · ".join(parts)
+        return self._describe("pip 管理")
+
+
+@dataclass(frozen=True)
+class SystemEnvironment(PipVenvEnvironment):
+    """系统级 Python 环境（不在虚拟环境内）：命令同 pip，描述标注系统环境。"""
+
+    def describe(self) -> str:
+        return self._describe("系统环境")
 
 
 def _read_pyvenv_cfg(venv_root: str) -> dict[str, str]:
@@ -124,20 +188,44 @@ def _find_pip_in_bin(bin_dir: str) -> str:
     return os.path.join(bin_dir, "pip")
 
 
+def _build_environment(
+    *,
+    python_version: str,
+    python_executable: str,
+    prefix: str,
+    base_prefix: str,
+    is_uv: bool,
+) -> Environment:
+    """根据探测结果构造对应环境类型的实例（唯一的分类点）。
+
+    新增环境形态时只需在此扩展，调用方无感知。
+    """
+    is_venv = prefix != base_prefix
+    fields = dict(
+        python_version=python_version,
+        python_executable=python_executable,
+        pip_executable=_find_pip_in_bin(os.path.dirname(python_executable)),
+        is_venv=is_venv,
+        venv_name=str(os.path.basename(prefix)) if is_venv else None,
+    )
+    if is_uv:
+        return UvEnvironment(**fields)
+    if is_venv:
+        return PipVenvEnvironment(**fields)
+    return SystemEnvironment(**fields)
+
+
 def detect_environment() -> Environment:
     """基于运行时信息推断当前环境。"""
     exe = sys.executable
     prefix = sys.prefix
     base_prefix = getattr(sys, "base_prefix", prefix)
-    is_venv = prefix != base_prefix
-    venv_name = os.path.basename(prefix) if is_venv else None
 
-    return Environment(
+    return _build_environment(
         python_version=platform.python_version(),
         python_executable=exe,
-        pip_executable=_find_pip_in_bin(os.path.dirname(exe)),
-        is_venv=is_venv,
-        venv_name=venv_name,
+        prefix=prefix,
+        base_prefix=base_prefix,
         is_uv=_is_uv_managed(exe),
     )
 
@@ -185,7 +273,7 @@ def _scan_for_venv(directory: str) -> str | None:
             candidates.append(sub)
     if not candidates:
         return None
-    candidates.sort(key=lambda p: os.path.basename(p))
+    candidates.sort(key=lambda p: str(os.path.basename(p)))
     return _python_in_venv(candidates[0])
 
 
@@ -227,13 +315,11 @@ def probe_interpreter(python_executable: str) -> ProbeResult:
 
     prefix = data["prefix"]
     base_prefix = data["base_prefix"]
-    is_venv = prefix != base_prefix
-    env = Environment(
+    env = _build_environment(
         python_version=data["python_version"],
         python_executable=data["python_executable"],
-        pip_executable=_find_pip_in_bin(os.path.dirname(data["python_executable"])),
-        is_venv=is_venv,
-        venv_name=os.path.basename(prefix) if is_venv else None,
+        prefix=prefix,
+        base_prefix=base_prefix,
         is_uv=_is_uv_managed(data["python_executable"]),
     )
     packages = [InstalledPackage(**p) for p in data["packages"]]

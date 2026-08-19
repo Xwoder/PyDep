@@ -2,7 +2,13 @@
 
 import os
 
-from pydep.environment import Environment, _is_uv_managed
+from pydep.environment import (
+    Environment,
+    PipVenvEnvironment,
+    SystemEnvironment,
+    UvEnvironment,
+    _is_uv_managed,
+)
 
 
 def _make_venv_with_cfg(tmp_path, name, cfg_lines=None):
@@ -57,38 +63,41 @@ def test_is_uv_managed_via_uv_active_env(monkeypatch, tmp_path):
 
 
 def test_environment_pip_command_uv():
-    env = Environment(
+    env = UvEnvironment(
         python_version="3.12.3",
         python_executable="/path/.venv/bin/python",
         pip_executable="/path/.venv/bin/pip",
         is_venv=True,
         venv_name=".venv",
-        is_uv=True,
     )
     assert env.pip_command == ["uv", "pip"]
 
 
 def test_environment_pip_command_regular():
-    env = Environment(
+    env = PipVenvEnvironment(
         python_version="3.12.3",
         python_executable="/path/.venv/bin/python",
         pip_executable="/path/.venv/bin/pip",
         is_venv=True,
         venv_name=".venv",
-        is_uv=False,
     )
     assert env.pip_command == ["/path/.venv/bin/python", "-m", "pip"]
 
 
 def _make_env(is_uv: bool, is_venv: bool = True, venv_name: str | None = ".venv") -> Environment:
-    return Environment(
+    """按标志位构造对应子类实例（模拟工厂的分类逻辑）。"""
+    fields = dict(
         python_version="3.12.3",
         python_executable="/path/.venv/bin/python",
         pip_executable="/path/.venv/bin/pip",
         is_venv=is_venv,
         venv_name=venv_name,
-        is_uv=is_uv,
     )
+    if is_uv:
+        return UvEnvironment(**fields)
+    if is_venv:
+        return PipVenvEnvironment(**fields)
+    return SystemEnvironment(**fields)
 
 
 def test_environment_describe_uv():
@@ -112,7 +121,7 @@ MIRROR = {"name": "tuna", "url": "https://pypi.tuna.tsinghua.edu.cn/simple"}
 
 
 def test_install_command_regular_pip():
-    env = Environment(
+    env = PipVenvEnvironment(
         python_version="3.12.3",
         python_executable="/path/.venv/bin/python",
         pip_executable="/path/.venv/bin/pip",
@@ -139,13 +148,12 @@ def test_install_command_regular_pip():
 
 
 def test_install_command_uv_pip():
-    env = Environment(
+    env = UvEnvironment(
         python_version="3.12.3",
         python_executable="/path/.venv/bin/python",
         pip_executable="/path/.venv/bin/pip",
         is_venv=True,
         venv_name=".venv",
-        is_uv=True,
     )
     # 默认模式：uv pip install（仅改环境）
     assert env.install_command(["demo==2.0.0"]) == ["uv", "pip", "install", "demo==2.0.0"]
@@ -167,13 +175,12 @@ def test_install_command_uv_pip():
 
 
 def test_install_command_uv_add():
-    env = Environment(
+    env = UvEnvironment(
         python_version="3.12.3",
         python_executable="/path/.venv/bin/python",
         pip_executable="/path/.venv/bin/pip",
         is_venv=True,
         venv_name=".venv",
-        is_uv=True,
     )
     # add 模式：uv add（写入 pyproject.toml / uv.lock），无 install 子命令
     assert env.install_command(["demo==2.0.0"], mode="add") == ["uv", "add", "demo==2.0.0"]
@@ -188,7 +195,7 @@ def test_install_command_uv_add():
 
 def test_install_command_regular_ignores_mode():
     """普通环境忽略 mode：即使传 add 也走 python -m pip install。"""
-    env = Environment(
+    env = PipVenvEnvironment(
         python_version="3.12.3",
         python_executable="/path/.venv/bin/python",
         pip_executable="/path/.venv/bin/pip",
