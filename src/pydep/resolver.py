@@ -65,6 +65,49 @@ def _release_yanked(info: PyPIInfo, version: str) -> bool:
     return any(f.get("yanked") for f in info.releases.get(version) or [])
 
 
+def _build_options(
+    info: PyPIInfo,
+    installed: str | None,
+    python_version: str,
+    *,
+    allow_prerelease: bool = False,
+    max_options: int | None = 15,
+) -> list[UpgradeOption]:
+    """按「当前已安装版本」为一个包计算候选版本列表。
+
+    过滤规则（按顺序）：
+    1. Requires-Python 必须兼容当前解释器；
+    2. 版本必须严格高于当前已安装版本；
+    3. 默认过滤预发布版本（除非当前装的就是预发布版，或显式放行）；
+    4. yanked 版本保留但排在列表末尾（供 UI 标记提示，截断时优先保留非 yanked）。
+    """
+    installed_pre = is_prerelease(installed) if installed else False
+
+    options: list[UpgradeOption] = []
+    for version in sort_versions(info.versions()):
+        requires_python = _release_requires_python(info, version)
+        if not compatible_with_python(requires_python, python_version):
+            continue
+        # 未安装的包（version 为 None）所有版本都是候选
+        if installed is not None and not version_gt(version, installed):
+            continue
+        if is_prerelease(version) and not installed_pre and not allow_prerelease:
+            continue
+        options.append(
+            UpgradeOption(
+                version=version,
+                requires_python=requires_python,
+                yanked=_release_yanked(info, version),
+            )
+        )
+
+    # 稳定排序：非 yanked 版本保持在前面（仍从新到旧），yanked 版本统一排到末尾
+    options.sort(key=lambda o: o.yanked)
+    if max_options is not None:
+        options = options[:max_options]
+    return options
+
+
 def build_candidates(
     packages: list[InstalledPackage],
     infos: dict[str, PyPIInfo],
@@ -73,51 +116,46 @@ def build_candidates(
     allow_prerelease: bool = False,
     max_options: int | None = 15,
 ) -> list[UpgradeCandidate]:
-    """为每个已安装包生成升级候选列表。
-
-    过滤规则（按顺序）：
-    1. Requires-Python 必须兼容当前解释器；
-    2. 版本必须严格高于当前已安装版本；
-    3. 默认过滤预发布版本（除非当前装的就是预发布版，或显式 --all）；
-    4. yanked 版本保留但排在列表末尾（供 UI 标记提示，截断时优先保留非 yanked）。
-    """
+    """为每个已安装包生成升级候选列表。"""
     candidates: list[UpgradeCandidate] = []
     for pkg in packages:
         info = infos.get(pkg.name)
         if info is None:
             candidates.append(UpgradeCandidate(package=pkg))
             continue
-
-        installed = pkg.version
-        installed_pre = is_prerelease(installed) if installed else False
-
-        options: list[UpgradeOption] = []
-        for version in sort_versions(info.versions()):
-            requires_python = _release_requires_python(info, version)
-            if not compatible_with_python(requires_python, python_version):
-                continue
-            # 未安装的包（version 为 None）所有版本都是候选
-            if installed is not None and not version_gt(version, installed):
-                continue
-            if is_prerelease(version) and not installed_pre and not allow_prerelease:
-                continue
-            options.append(
-                UpgradeOption(
-                    version=version,
-                    requires_python=requires_python,
-                    yanked=_release_yanked(info, version),
-                )
-            )
-
-        # 稳定排序：非 yanked 版本保持在前面（仍从新到旧），yanked 版本统一排到末尾
-        options.sort(key=lambda o: o.yanked)
-        visible = options
-        if max_options is not None:
-            visible = visible[:max_options]
-
-        candidates.append(UpgradeCandidate(package=pkg, info=info, options=visible))
-
+        options = _build_options(
+            info,
+            pkg.version,
+            python_version,
+            allow_prerelease=allow_prerelease,
+            max_options=max_options,
+        )
+        candidates.append(UpgradeCandidate(package=pkg, info=info, options=options))
     return candidates
+
+
+def refresh_candidate_options(
+    candidates: list[UpgradeCandidate],
+    python_version: str,
+    *,
+    allow_prerelease: bool = False,
+    max_options: int | None = 15,
+) -> None:
+    """安装完成后按每个包「新的已安装版本」重新计算候选列表。
+
+    已安装到的版本不再严格高于当前版本，会被过滤掉，
+    因此 `upgradable`（len(options) > 0）随之自动变为正确状态。
+    """
+    for cand in candidates:
+        if cand.info is None:
+            continue
+        cand.options = _build_options(
+            cand.info,
+            cand.package.version,
+            python_version,
+            allow_prerelease=allow_prerelease,
+            max_options=max_options,
+        )
 
 
 def check_reverse_dep_conflicts(

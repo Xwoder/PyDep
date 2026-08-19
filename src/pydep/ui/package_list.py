@@ -146,6 +146,9 @@ class PackageListScreen(Screen[None]):
             self.notify("复制失败：未找到可用的剪贴板工具", severity="error")
 
     def action_execute(self) -> None:
+        if self.app.installing:  # type: ignore[attr-defined]
+            self.notify("安装正在进行中，请稍候", severity="warning")
+            return
         cmd = self._build_command()
         if not cmd:
             self.notify("还没有选择任何升级", severity="warning")
@@ -191,9 +194,8 @@ class PackageListScreen(Screen[None]):
             )
         )
         if confirm:
-            self.app.exit(  # type: ignore[attr-defined]
-                {"execute": True, "pins": self._pins(), "mirror": self.app.mirror}
-            )
+            # 不退出 TUI：直接在应用内部 push 安装屏幕执行 pip
+            self.app.run_install(self._pins())  # type: ignore[attr-defined]
 
     async def _confirm_clear_cache(self) -> None:
         confirm = await self.app.push_screen_wait(  # type: ignore[attr-defined]
@@ -297,3 +299,14 @@ class PackageListScreen(Screen[None]):
             command += f"\n[dim]镜像源：{mirror['name']} · {mirror['url']}[/dim]"
         self.query_one("#summary", Static).update(summary)
         self.query_one("#command", Static).update(command)
+
+    def refresh_after_install(self) -> None:
+        """安装完成后刷新界面：重建表格并清空已选状态。"""
+        self._rebuild_table()
+        self._update_summary()
+
+    def on_screen_resume(self) -> None:
+        """从安装屏幕返回时，若安装已刷新版本数据，则重建界面。"""
+        if self.app._pending_refresh:  # type: ignore[attr-defined]
+            self.app._pending_refresh = False  # type: ignore[attr-defined]
+            self.refresh_after_install()

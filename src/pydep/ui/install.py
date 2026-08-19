@@ -1,0 +1,108 @@
+"""安装执行屏幕：在 TUI 内部直接运行 pip install，实时显示日志。
+
+替代原先「确认后退出 TUI、回 CLI 用 subprocess 执行」的方式：
+安装过程完全发生在应用内部，结束后按 Esc 返回包列表，可继续操作。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import shlex
+
+from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.screen import Screen
+from textual.widgets import Footer, Header, RichLog, Static
+
+from ..environment import Environment
+
+CSS = """
+#install-cmd {
+    height: auto;
+    margin: 1 2;
+}
+
+#install-log {
+    height: 1fr;
+    margin: 0 2;
+    border: round $primary;
+    padding: 0 1;
+}
+
+#install-status {
+    height: auto;
+    margin: 1 2;
+    color: $text-muted;
+}
+"""
+
+
+class InstallScreen(Screen[None]):
+    """执行 pip 安装并实时展示日志。"""
+
+    CSS = CSS
+
+    BINDINGS = [
+        Binding("escape", "back", "返回列表", show=True),
+    ]
+
+    def __init__(
+        self,
+        env: Environment,
+        pins: list[str],
+        mirror: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__()
+        self._cmd = [*env.pip_command, "install", *pins]
+        if mirror:
+            self._cmd.extend(["-i", mirror["url"]])
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=False)
+        yield Static(
+            f"[bold cyan]执行:[/bold cyan] {shlex.join(self._cmd)}\n"
+            "[dim]↑↓ 滚动日志 · Esc 返回列表[/dim]",
+            id="install-cmd",
+        )
+        yield RichLog(id="install-log", highlight=False, markup=False, wrap=True)
+        yield Static("安装进行中 ...", id="install-status")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.run_worker(self._run(), exclusive=True)
+
+    async def _run(self) -> None:
+        log = self.query_one("#install-log", RichLog)
+        status = self.query_one("#install-status", Static)
+        log.write(f"$ {shlex.join(self._cmd)}")
+
+        proc = await asyncio.create_subprocess_exec(
+            *self._cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        assert proc.stdout is not None and proc.stderr is not None
+
+        async def pump(stream: asyncio.StreamReader) -> None:
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+                text = line.decode(errors="replace").rstrip("\r\n")
+                if text:
+                    log.write(text)
+
+        await asyncio.gather(pump(proc.stdout), pump(proc.stderr))
+        returncode = await proc.wait()
+        self.app.installing = False  # type: ignore[attr-defined]
+        if returncode == 0:
+            status.update("[bold green]安装完成[/bold green]  按 Esc 返回列表")
+            # 安装成功后异步刷新包列表中的当前版本
+            self.app.refresh_versions()  # type: ignore[attr-defined]
+        else:
+            status.update(
+                f"[bold red]安装失败（返回码 {returncode}）[/bold red]  按 Esc 返回列表"
+            )
+
+    def action_back(self) -> None:
+        self.app.pop_screen()  # type: ignore[attr-defined]

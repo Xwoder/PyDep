@@ -6,14 +6,12 @@
     2. 列出（或解析出）待检查的包
     3. 并发查询 PyPI
     4. 计算升级候选
-    5. 启动 Textual TUI
-    6. （可选）退出后用目标环境的 python -m pip 直接执行
+    5. 启动 Textual TUI（在 TUI 内直接执行 pip install，无需退出）
 """
 
 from __future__ import annotations
 
 import asyncio
-import subprocess
 
 import typer
 from rich.console import Console
@@ -27,7 +25,7 @@ from .packages import (
     list_installed,
     parse_dependency_file,
 )
-from .resolver import build_candidates, check_reverse_dep_conflicts
+from .resolver import build_candidates
 from .ui.app import PydepApp
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, rich_markup_mode="rich")
@@ -210,25 +208,14 @@ def main(
     console.print(f"有 [bold]{len(upgradable)}[/bold] 个包可以升级，启动交互界面 ...")
     console.print("[dim]提示: ↑↓ 移动 · Space 勾选包(最新版) · Enter 选具体版本 · c 复制 · e 执行 · k 清理缓存 · m 镜像 · q 退出[/dim]")
 
-    ui_app = PydepApp(candidates=candidates, env=env)
-    result = ui_app.run()
-
-    if result and result.get("execute"):
-        conflicts: list[str] = []
-        for pin in result["pins"]:
-            name, _, version = pin.partition("==")
-            conflicts.extend(check_reverse_dep_conflicts(installed, name, version))
-        if conflicts:
-            console.print("[bold yellow]依赖冲突警告（pip 不会自动拦截，请确认）：[/bold yellow]")
-            for line in conflicts:
-                console.print(f"[yellow]  - {line}[/yellow]")
-        cmd = [env.python_executable, "-m", "pip", "install", *result["pins"]]
-        mirror = result.get("mirror")
-        if mirror:
-            cmd.extend(["-i", mirror["url"]])
-            console.print(f"[bold cyan]镜像源:[/bold cyan] {mirror['name']} · {mirror['url']}")
-        console.print(f"\n[bold cyan]执行:[/bold cyan] {' '.join(cmd)}")
-        raise SystemExit(subprocess.run(cmd).returncode)
+    ui_app = PydepApp(
+        candidates=candidates,
+        env=env,
+        allow_prerelease=all_versions,
+        max_options=limit,
+    )
+    # 安装（e -> 确认）已在 TUI 内部完成，退出后无需再执行任何命令
+    ui_app.run()
 
 
 if __name__ == "__main__":

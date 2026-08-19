@@ -5,8 +5,9 @@ from __future__ import annotations
 from textual.app import App
 from textual.binding import Binding
 
-from ..environment import Environment
-from ..resolver import UpgradeCandidate
+from ..environment import Environment, probe_interpreter
+from ..resolver import UpgradeCandidate, refresh_candidate_options
+from .install import InstallScreen
 from .package_list import PackageListScreen
 
 CSS = """
@@ -91,13 +92,11 @@ VersionModal, ConfirmModal, MirrorModal {
 """
 
 
-class PydepApp(App[dict | None]):
+class PydepApp(App[None]):
     """pydep 主应用。
 
-    退出时通过 exit() 返回 {execute, pins, mirror}：
-    - execute=True 表示用户确认要在 CLI 中直接执行 pip install
-    - pins 形如 ["numpy==2.2.2", "pandas==2.3.1"]
-    - mirror 为本次升级临时选择的镜像源（{"name", "url"}）或 None
+    安装（包列表按 e -> 确认 Y）在应用内部直接完成：push 到 InstallScreen
+    运行 pip install，无需退出 TUI；安装成功后自动刷新包列表的当前版本。
     """
 
     CSS = CSS
@@ -111,6 +110,9 @@ class PydepApp(App[dict | None]):
         self,
         candidates: list[UpgradeCandidate],
         env: Environment,
+        *,
+        allow_prerelease: bool = False,
+        max_options: int | None = 15,
     ) -> None:
         super().__init__()
         self.candidates = candidates
@@ -120,6 +122,48 @@ class PydepApp(App[dict | None]):
         # 本次升级临时选用的镜像源（不持久化）：{"name": ..., "url": ...}，None 表示官方源
         self.mirror: dict[str, str] | None = None
         self.sub_title = env.describe()
+        # 与 CLI 阶段 build_candidates 一致的候选策略，用于安装后重算
+        self._allow_prerelease = allow_prerelease
+        self._max_options = max_options
+        # 是否有 pip 安装正在后台进行（进行中禁止再次触发安装）
+        self.installing = False
+        # 安装成功后版本数据已刷新，等待返回包列表时重建界面
+        self._pending_refresh = False
 
     def on_mount(self) -> None:
         self.push_screen(PackageListScreen(self.candidates, self.env))
+
+    # ---- 安装与刷新 ----
+
+    def run_install(self, pins: list[str]) -> None:
+        """在 TUI 内部执行 pip 安装：push 安装屏幕，不退出应用。"""
+        self.installing = True
+        self.push_screen(InstallScreen(self.env, pins, self.mirror))
+
+    def refresh_versions(self) -> None:
+        """安装成功后重新探测该环境，刷新包列表中的当前版本。"""
+        self.run_worker(self._refresh_versions(), exclusive=False)
+
+    async def _refresh_versions(self) -> None:
+        try:
+            probe = probe_interpreter(self.env.python_executable)
+        except (OSError, RuntimeError) as exc:
+            self.notify(f"安装完成，但刷新版本信息失败：{exc}", severity="warning")
+            return
+        versions = {p.name: p.version for p in probe.packages}
+        for cand in self.candidates:
+            if cand.package.name in versions:
+                cand.package.version = versions[cand.package.name]
+        # 按新的已安装版本重算候选列表：已装到的版本不再显示为可升级
+        refresh_candidate_options(
+            self.candidates,
+            self.env.python_version_short,
+            allow_prerelease=self._allow_prerelease,
+            max_options=self._max_options,
+        )
+        self.selected.clear()
+        self._pending_refresh = True
+        # 若已返回包列表则立即重建界面；否则等 on_screen_resume 触发
+        if isinstance(self.screen, PackageListScreen):
+            self.screen.refresh_after_install()
+        self.notify("安装完成，包列表已刷新")
