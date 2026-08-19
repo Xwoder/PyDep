@@ -210,6 +210,40 @@ class PackageListScreen(Screen[None]):
 
     # ---- 内部 ----
 
+    def _cells_for(self, cand: UpgradeCandidate) -> list[Text]:
+        """按候选状态生成表格一行的单元格。
+
+        各分支共享「选择」「包名」「当前版本」三列，仅「最新版」与「候选版本」列随状态变化。
+        """
+        name = cand.package.name
+        current = Text(
+            cand.package.version or "未安装",
+            style="dim" if cand.package.version is None else "",
+        )
+        if cand.upgradable:
+            return [
+                Text("[ ]"),
+                Text(name, style="bold"),
+                current,
+                Text(cand.latest or "", style="bold green"),
+                Text(f"{len(cand.options)} 个", style="cyan"),
+            ]
+        if cand.on_pypi:
+            return [
+                Text("[ ]"),
+                Text(name),
+                current,
+                Text("无更高版本", style="dim"),
+                Text("-", style="dim"),
+            ]
+        return [
+            Text("[ ]"),
+            Text(name),
+            current,
+            Text("不在 PyPI", style="red"),
+            Text("-", style="dim"),
+        ]
+
     def _rebuild_table(self) -> None:
         """按当前过滤状态重建表格（保留列与选中状态）。"""
         table = self.query_one(DataTable)
@@ -224,31 +258,7 @@ class PackageListScreen(Screen[None]):
                 continue
             if self._filter_upgradable and not cand.upgradable:
                 continue
-            if cand.upgradable:
-                cells = [
-                    Text("[ ]"),
-                    Text(name, style="bold"),
-                    Text(cand.package.version or "未安装", style="dim" if cand.package.version is None else ""),
-                    Text(cand.latest or "", style="bold green"),
-                    Text(f"{len(cand.options)} 个", style="cyan"),
-                ]
-            elif cand.on_pypi:
-                cells = [
-                    Text("[ ]"),
-                    Text(name),
-                    Text(cand.package.version or "未安装", style="dim" if cand.package.version is None else ""),
-                    Text("无更高版本", style="dim"),
-                    Text("-", style="dim"),
-                ]
-            else:
-                cells = [
-                    Text("[ ]"),
-                    Text(name),
-                    Text(cand.package.version or "未安装", style="dim" if cand.package.version is None else ""),
-                    Text("不在 PyPI", style="red"),
-                    Text("-", style="dim"),
-                ]
-            row_key = table.add_row(*cells, key=name)
+            row_key = table.add_row(*self._cells_for(cand), key=name)
             self._row_key_by_name[name] = row_key
             self._name_by_row_key[row_key] = name
 
