@@ -255,25 +255,26 @@ def make_mixed_candidates() -> list[UpgradeCandidate]:
 
 @pytest.mark.asyncio
 async def test_filter_upgradable_toggle():
-    """按 f 仅显示可升级的包；再次按下恢复显示全部。"""
+    """默认仅显示可升级的包；按 f 切换显示全部，再按恢复。"""
     app = PydepApp(candidates=make_mixed_candidates(), env=detect_environment())
     async with app.run_test() as pilot:
         await pilot.pause()
         screen = app.screen
         table = screen.query_one(DataTable)
-        assert len(table.rows) == 3
-
-        # 第一次按 f：只剩可升级的 demo
-        await pilot.press("f")
-        await pilot.pause()
+        # 默认只显示可升级的 demo
         assert len(table.rows) == 1
         assert "demo" in screen._row_key_by_name
         assert "nosel" not in screen._row_key_by_name
         assert "localpkg" not in screen._row_key_by_name
 
-        # 再次按 f：恢复全部
+        # 按 f：显示全部
         await pilot.press("f")
         await pilot.pause()
         assert len(table.rows) == 3
+
+        # 再次按 f：恢复仅可升级
+        await pilot.press("f")
+        await pilot.pause()
+        assert len(table.rows) == 1
 
         await pilot.press("q")

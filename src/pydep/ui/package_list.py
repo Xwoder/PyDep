@@ -64,7 +64,7 @@ class PackageListScreen(Screen[None]):
         super().__init__()
         self.candidates = candidates
         self.env = env
-        self._filter_upgradable = False
+        self._filter_upgradable = True
         self._row_key_by_name: dict[str, object] = {}
         self._name_by_row_key: dict[object, str] = {}
 
@@ -72,7 +72,7 @@ class PackageListScreen(Screen[None]):
         yield Header(show_clock=False)
         yield Static(self.env.describe(), id="env-info")
         yield Static(
-            "[dim]Space 勾选包（选最新兼容版） · Enter 打开该包的版本列表 · ↑↓ 移动光标 · m 选本次升级镜像[/dim]",
+            "[dim]Space 勾选包（选最新兼容版） · Enter 打开该包的版本列表 · F 切换全部/仅可升级 · m 选本次升级镜像[/dim]",
             id="hint",
         )
         yield DataTable(id="package-table")
