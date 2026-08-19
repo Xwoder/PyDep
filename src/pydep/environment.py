@@ -80,9 +80,11 @@ class Environment:
         if self.is_uv:
             parts.append("uv 管理")
         elif self.is_venv and self.venv_name:
-            parts.append(f"venv: {self.venv_name}")
+            parts.append("pip 管理")
         else:
             parts.append("系统环境")
+        if self.is_venv and self.venv_name:
+            parts.append(f"venv: {self.venv_name}")
         return " · ".join(parts)
 
 

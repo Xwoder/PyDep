@@ -80,16 +80,32 @@ def test_environment_pip_command_regular():
     assert env.pip_command == ["/path/.venv/bin/python", "-m", "pip"]
 
 
-def test_environment_describe_uv():
-    env = Environment(
+def _make_env(is_uv: bool, is_venv: bool = True, venv_name: str | None = ".venv") -> Environment:
+    return Environment(
         python_version="3.12.3",
         python_executable="/path/.venv/bin/python",
         pip_executable="/path/.venv/bin/pip",
-        is_venv=True,
-        venv_name=".venv",
-        is_uv=True,
+        is_venv=is_venv,
+        venv_name=venv_name,
+        is_uv=is_uv,
     )
-    assert "uv 管理" in env.describe()
+
+
+def test_environment_describe_uv():
+    """uv 管理环境：标注 uv 管理并显示 venv 目录名。"""
+    assert _make_env(is_uv=True).describe() == "Python 3.12.3 · uv 管理 · venv: .venv"
+
+
+def test_environment_describe_pip_venv():
+    """pip 管理环境：标注 pip 管理并显示 venv 目录名。"""
+    assert _make_env(is_uv=False).describe() == "Python 3.12.3 · pip 管理 · venv: .venv"
+
+
+def test_environment_describe_system():
+    """系统环境：无 venv 标识。"""
+    assert _make_env(is_uv=False, is_venv=False, venv_name=None).describe() == (
+        "Python 3.12.3 · 系统环境"
+    )
 
 
 MIRROR = {"name": "tuna", "url": "https://pypi.tuna.tsinghua.edu.cn/simple"}
