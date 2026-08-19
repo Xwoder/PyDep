@@ -208,7 +208,7 @@ def main(
         raise typer.Exit(0)
 
     console.print(f"有 [bold]{len(upgradable)}[/bold] 个包可以升级，启动交互界面 ...")
-    console.print("[dim]提示: ↑↓ 移动 · Space 勾选包(最新版) · Enter 选具体版本 · c 复制 · e 执行 · k 清理缓存 · q 退出[/dim]")
+    console.print("[dim]提示: ↑↓ 移动 · Space 勾选包(最新版) · Enter 选具体版本 · c 复制 · e 执行 · k 清理缓存 · m 镜像 · q 退出[/dim]")
 
     ui_app = PydepApp(candidates=candidates, env=env)
     result = ui_app.run()
@@ -223,6 +223,10 @@ def main(
             for line in conflicts:
                 console.print(f"[yellow]  - {line}[/yellow]")
         cmd = [env.python_executable, "-m", "pip", "install", *result["pins"]]
+        mirror = result.get("mirror")
+        if mirror:
+            cmd.extend(["-i", mirror["url"]])
+            console.print(f"[bold cyan]镜像源:[/bold cyan] {mirror['name']} · {mirror['url']}")
         console.print(f"\n[bold cyan]执行:[/bold cyan] {' '.join(cmd)}")
         raise SystemExit(subprocess.run(cmd).returncode)
 

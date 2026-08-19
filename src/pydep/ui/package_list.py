@@ -16,6 +16,7 @@ from ..environment import Environment
 from ..packages import clear_cache
 from ..resolver import UpgradeCandidate, check_reverse_dep_conflicts
 from .dialog import ConfirmModal
+from .mirror import MIRRORS, MirrorModal
 from .version_list import VersionModal
 
 
@@ -55,6 +56,7 @@ class PackageListScreen(Screen[None]):
         Binding("e", "execute", "执行"),
         Binding("f", "filter_upgradable", "过滤"),
         Binding("k", "clear_cache", "清理缓存"),
+        Binding("m", "select_mirror", "镜像"),
         Binding("q", "quit", "退出"),
     ]
 
@@ -70,7 +72,7 @@ class PackageListScreen(Screen[None]):
         yield Header(show_clock=False)
         yield Static(self.env.describe(), id="env-info")
         yield Static(
-            "[dim]Space 勾选包（选最新兼容版） · Enter 打开该包的版本列表 · ↑↓ 移动光标[/dim]",
+            "[dim]Space 勾选包（选最新兼容版） · Enter 打开该包的版本列表 · ↑↓ 移动光标 · m 选本次升级镜像[/dim]",
             id="hint",
         )
         yield DataTable(id="package-table")
@@ -156,6 +158,21 @@ class PackageListScreen(Screen[None]):
         # push_screen_wait 必须在 worker 中调用
         self.run_worker(self._confirm_clear_cache(), exclusive=True)
 
+    def action_select_mirror(self) -> None:
+        """按 m 选择本次升级使用的镜像源（仅本次，不写入任何配置）。"""
+        # push_screen_wait 必须在 worker 中调用
+        self.run_worker(self._open_mirror(), exclusive=True)
+
+    async def _open_mirror(self) -> None:
+        current = self.app.mirror  # type: ignore[attr-defined]
+        name = await self.app.push_screen_wait(  # type: ignore[attr-defined]
+            MirrorModal(current=current["name"] if current else None)
+        )
+        if name:
+            self.app.mirror = {"name": name, "url": MIRRORS[name]}  # type: ignore[attr-defined]
+            self._update_summary()
+            self.notify(f"本次升级将使用镜像源 [bold]{name}[/bold]")
+
     def action_filter_upgradable(self) -> None:
         """按 f 切换：仅显示可升级的包；再次按下显示全部。"""
         self._filter_upgradable = not self._filter_upgradable
@@ -174,7 +191,9 @@ class PackageListScreen(Screen[None]):
             )
         )
         if confirm:
-            self.app.exit({"execute": True, "pins": self._pins()})  # type: ignore[attr-defined]
+            self.app.exit(  # type: ignore[attr-defined]
+                {"execute": True, "pins": self._pins(), "mirror": self.app.mirror}
+            )
 
     async def _confirm_clear_cache(self) -> None:
         confirm = await self.app.push_screen_wait(  # type: ignore[attr-defined]
@@ -248,7 +267,11 @@ class PackageListScreen(Screen[None]):
         pins = self._pins()
         if not pins:
             return []
-        return ["pip", "install", *pins]
+        cmd = ["pip", "install", *pins]
+        mirror = self.app.mirror  # type: ignore[attr-defined]
+        if mirror:
+            cmd.extend(["-i", mirror["url"]])
+        return cmd
 
     def _update_row(self, name: str) -> None:
         table = self.query_one(DataTable)
@@ -263,11 +286,14 @@ class PackageListScreen(Screen[None]):
 
     def _update_summary(self) -> None:
         pins = self._pins()
+        mirror = self.app.mirror  # type: ignore[attr-defined]
         if pins:
             summary = "已选择：\n" + "\n".join(f"[green]{p}[/green]" for p in pins)
             command = "最终命令：\n" + " ".join(["pip", "install", *pins])
         else:
             summary = "已选择：\n（无）"
             command = "最终命令：\n（请先选择包）"
+        if mirror:
+            command += f"\n[dim]镜像源：{mirror['name']} · {mirror['url']}[/dim]"
         self.query_one("#summary", Static).update(summary)
         self.query_one("#command", Static).update(command)
