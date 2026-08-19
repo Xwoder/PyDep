@@ -8,6 +8,7 @@ from pydep.packages import InstalledPackage, PyPIInfo
 from pydep.resolver import UpgradeCandidate, UpgradeOption
 from pydep.ui.app import PydepApp
 from pydep.ui.install import InstallScreen
+from pydep.ui.install_mode import InstallModeModal
 from pydep.ui.version_list import VersionModal
 
 
@@ -316,3 +317,41 @@ def test_install_screen_cmd_uv_with_mirror():
         "--index-url",
         "https://pypi.tuna.tsinghua.edu.cn/simple",
     ]
+
+
+def test_install_screen_cmd_uv_add():
+    """uv 环境 + add 模式：命令为 uv add（无 install 子命令，写入依赖清单）。"""
+    screen = InstallScreen(_make_env(is_uv=True), ["demo==2.0.0"], mode="add")
+    assert screen._cmd == ["uv", "add", "demo==2.0.0"]
+
+
+@pytest.mark.asyncio
+async def test_install_mode_modal_switch_to_add():
+    """uv 环境按 o 弹出安装模式选择，选 uv add 后摘要与命令更新。"""
+    app = PydepApp(candidates=make_mixed_candidates(), env=_make_env(is_uv=True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        # 勾选 demo，默认模式 uv pip install
+        await pilot.press("space")
+        await pilot.pause()
+        command = screen.query_one("#command", Static)
+        assert "uv pip install demo==" in str(command.render())
+        assert "安装模式：uv pip install" in str(command.render())
+
+        # 按 o 打开安装模式弹窗
+        await pilot.press("o")
+        await pilot.pause()
+        assert isinstance(app.screen, InstallModeModal)
+
+        # 移动到 uv add 并确认
+        await pilot.press("down", "enter")
+        await pilot.pause()
+        assert app.install_mode == "add"
+
+        # 摘要更新为 uv add
+        command = screen.query_one("#command", Static)
+        assert "uv add demo==" in str(command.render())
+        assert "安装模式：uv add" in str(command.render())
+
+        await pilot.press("q")

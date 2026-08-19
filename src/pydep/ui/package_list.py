@@ -16,6 +16,7 @@ from ..environment import Environment
 from ..packages import clear_cache
 from ..resolver import UpgradeCandidate, check_reverse_dep_conflicts
 from .dialog import ConfirmModal
+from .install_mode import MODE_LABELS, InstallModeModal
 from .mirror import MIRRORS, MirrorModal
 from .version_list import VersionModal
 
@@ -57,6 +58,7 @@ class PackageListScreen(Screen[None]):
         Binding("f", "filter_upgradable", "过滤"),
         Binding("k", "clear_cache", "清理缓存"),
         Binding("m", "select_mirror", "镜像"),
+        Binding("o", "select_install_mode", "安装模式"),
         Binding("q", "quit", "退出"),
     ]
 
@@ -72,7 +74,7 @@ class PackageListScreen(Screen[None]):
         yield Header(show_clock=False)
         yield Static(self.env.describe(), id="env-info")
         yield Static(
-            "[dim]Space 勾选包（选最新兼容版） · Enter 打开该包的版本列表 · F 切换全部/仅可升级 · m 选本次升级镜像[/dim]",
+            "[dim]Space 勾选包（选最新兼容版） · Enter 版本列表 · F 全部/仅可升级 · m 镜像 · o 安装模式（uv）[/dim]",
             id="hint",
         )
         yield DataTable(id="package-table")
@@ -175,6 +177,26 @@ class PackageListScreen(Screen[None]):
             self.app.mirror = {"name": name, "url": MIRRORS[name]}  # type: ignore[attr-defined]
             self._update_summary()
             self.notify(f"本次升级将使用镜像源 [bold]{name}[/bold]")
+
+    def action_select_install_mode(self) -> None:
+        """按 o 选择安装模式（仅 uv 管理环境可用；pip 环境固定 python -m pip）。"""
+        if not self.env.is_uv:
+            self.notify(
+                "仅 uv 管理环境支持切换安装模式（当前为 python -m pip）",
+                severity="warning",
+            )
+            return
+        # push_screen_wait 必须在 worker 中调用
+        self.run_worker(self._open_install_mode(), exclusive=True)
+
+    async def _open_install_mode(self) -> None:
+        mode = await self.app.push_screen_wait(  # type: ignore[attr-defined]
+            InstallModeModal(current=self.app.install_mode)  # type: ignore[attr-defined]
+        )
+        if mode:
+            self.app.install_mode = mode  # type: ignore[attr-defined]
+            self._update_summary()
+            self.notify(f"安装模式已切换为 [bold]{MODE_LABELS[mode]}[/bold]")
 
     def action_filter_upgradable(self) -> None:
         """按 f 切换：仅显示可升级的包；再次按下显示全部。"""
@@ -279,11 +301,8 @@ class PackageListScreen(Screen[None]):
         pins = self._pins()
         if not pins:
             return []
-        cmd = ["pip", "install", *pins]
-        mirror = self.app.mirror  # type: ignore[attr-defined]
-        if mirror:
-            cmd.extend(["-i", mirror["url"]])
-        return cmd
+        mode = self.app.install_mode if self.env.is_uv else "pip"  # type: ignore[attr-defined]
+        return self.env.install_command(pins, mode=mode, mirror=self.app.mirror)  # type: ignore[attr-defined]
 
     def _update_row(self, name: str) -> None:
         table = self.query_one(DataTable)
@@ -299,14 +318,19 @@ class PackageListScreen(Screen[None]):
     def _update_summary(self) -> None:
         pins = self._pins()
         mirror = self.app.mirror  # type: ignore[attr-defined]
+        mode = self.app.install_mode if self.env.is_uv else "pip"  # type: ignore[attr-defined]
         if pins:
             summary = "已选择：\n" + "\n".join(f"[green]{p}[/green]" for p in pins)
-            command = "最终命令：\n" + " ".join(["pip", "install", *pins])
+            command = "最终命令：\n" + " ".join(
+                self.env.install_command(pins, mode=mode, mirror=mirror)
+            )
         else:
             summary = "已选择：\n（无）"
             command = "最终命令：\n（请先选择包）"
         if mirror:
             command += f"\n[dim]镜像源：{mirror['name']} · {mirror['url']}[/dim]"
+        if self.env.is_uv:
+            command += f"\n[dim]安装模式：{MODE_LABELS[mode]}[/dim]"
         self.query_one("#summary", Static).update(summary)
         self.query_one("#command", Static).update(command)
 

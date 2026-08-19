@@ -52,19 +52,23 @@ class InstallScreen(Screen[None]):
         env: Environment,
         pins: list[str],
         mirror: dict[str, str] | None = None,
+        mode: str = "pip",
     ) -> None:
         super().__init__()
         self._env = env
-        self._cmd = [*env.pip_command, "install", *pins]
-        if mirror:
-            # uv 的索引参数为 --index-url（等价于 pip 的 -i），语义更明确
-            index_flag = "--index-url" if env.is_uv else "-i"
-            self._cmd.extend([index_flag, mirror["url"]])
+        self._mode = mode
+        self._cmd = env.install_command(pins, mode=mode, mirror=mirror)
 
     def compose(self) -> ComposeResult:
+        mode_hint = (
+            "[dim]模式：uv add（将写入 pyproject.toml 并更新 uv.lock）[/dim]\n"
+            if self._env.is_uv and self._mode == "add"
+            else ""
+        )
         yield Header(show_clock=False)
         yield Static(
             f"[bold cyan]执行:[/bold cyan] {shlex.join(self._cmd)}\n"
+            f"{mode_hint}"
             "[dim]↑↓ 滚动日志 · Esc 返回列表[/dim]",
             id="install-cmd",
         )

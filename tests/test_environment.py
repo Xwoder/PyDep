@@ -90,3 +90,99 @@ def test_environment_describe_uv():
         is_uv=True,
     )
     assert "uv 管理" in env.describe()
+
+
+MIRROR = {"name": "tuna", "url": "https://pypi.tuna.tsinghua.edu.cn/simple"}
+
+
+def test_install_command_regular_pip():
+    env = Environment(
+        python_version="3.12.3",
+        python_executable="/path/.venv/bin/python",
+        pip_executable="/path/.venv/bin/pip",
+        is_venv=True,
+        venv_name=".venv",
+    )
+    assert env.install_command(["demo==2.0.0"]) == [
+        "/path/.venv/bin/python",
+        "-m",
+        "pip",
+        "install",
+        "demo==2.0.0",
+    ]
+    # 普通环境：镜像参数用 -i
+    assert env.install_command(["demo==2.0.0"], mirror=MIRROR) == [
+        "/path/.venv/bin/python",
+        "-m",
+        "pip",
+        "install",
+        "demo==2.0.0",
+        "-i",
+        MIRROR["url"],
+    ]
+
+
+def test_install_command_uv_pip():
+    env = Environment(
+        python_version="3.12.3",
+        python_executable="/path/.venv/bin/python",
+        pip_executable="/path/.venv/bin/pip",
+        is_venv=True,
+        venv_name=".venv",
+        is_uv=True,
+    )
+    # 默认模式：uv pip install（仅改环境）
+    assert env.install_command(["demo==2.0.0"]) == ["uv", "pip", "install", "demo==2.0.0"]
+    assert env.install_command(["demo==2.0.0"], mode="pip") == [
+        "uv",
+        "pip",
+        "install",
+        "demo==2.0.0",
+    ]
+    # uv：镜像参数用 --index-url
+    assert env.install_command(["demo==2.0.0"], mode="pip", mirror=MIRROR) == [
+        "uv",
+        "pip",
+        "install",
+        "demo==2.0.0",
+        "--index-url",
+        MIRROR["url"],
+    ]
+
+
+def test_install_command_uv_add():
+    env = Environment(
+        python_version="3.12.3",
+        python_executable="/path/.venv/bin/python",
+        pip_executable="/path/.venv/bin/pip",
+        is_venv=True,
+        venv_name=".venv",
+        is_uv=True,
+    )
+    # add 模式：uv add（写入 pyproject.toml / uv.lock），无 install 子命令
+    assert env.install_command(["demo==2.0.0"], mode="add") == ["uv", "add", "demo==2.0.0"]
+    assert env.install_command(["demo==2.0.0"], mode="add", mirror=MIRROR) == [
+        "uv",
+        "add",
+        "demo==2.0.0",
+        "--index-url",
+        MIRROR["url"],
+    ]
+
+
+def test_install_command_regular_ignores_mode():
+    """普通环境忽略 mode：即使传 add 也走 python -m pip install。"""
+    env = Environment(
+        python_version="3.12.3",
+        python_executable="/path/.venv/bin/python",
+        pip_executable="/path/.venv/bin/pip",
+        is_venv=True,
+        venv_name=".venv",
+    )
+    assert env.install_command(["demo==2.0.0"], mode="add") == [
+        "/path/.venv/bin/python",
+        "-m",
+        "pip",
+        "install",
+        "demo==2.0.0",
+    ]

@@ -58,11 +58,11 @@ Footer {
     margin-right: 1;
 }
 
-VersionModal, ConfirmModal, MirrorModal {
+VersionModal, ConfirmModal, MirrorModal, InstallModeModal {
     align: center middle;
 }
 
-#version-dialog, #confirm-dialog, #mirror-dialog {
+#version-dialog, #confirm-dialog, #mirror-dialog, #install-mode-dialog {
     width: 62;
     height: auto;
     max-height: 80%;
@@ -71,12 +71,12 @@ VersionModal, ConfirmModal, MirrorModal {
     padding: 1 2;
 }
 
-#version-list, #mirror-list {
+#version-list, #mirror-list, #install-mode-list {
     height: auto;
     max-height: 25;
 }
 
-#version-hint, #confirm-hint, #mirror-hint {
+#version-hint, #confirm-hint, #mirror-hint, #install-mode-hint {
     margin-top: 1;
     color: $text-muted;
 }
@@ -86,7 +86,7 @@ VersionModal, ConfirmModal, MirrorModal {
     color: $error;
 }
 
-#version-header, #mirror-header {
+#version-header, #mirror-header, #install-mode-header {
     margin-bottom: 1;
 }
 """
@@ -121,6 +121,8 @@ class PydepApp(App[None]):
         self.selected: dict[str, str] = {}
         # 本次升级临时选用的镜像源（不持久化）：{"name": ..., "url": ...}，None 表示官方源
         self.mirror: dict[str, str] | None = None
+        # uv 管理环境的安装模式："pip"（uv pip install，默认）/ "add"（uv add，写入依赖清单）
+        self.install_mode = "pip"
         self.sub_title = env.describe()
         # 与 CLI 阶段 build_candidates 一致的候选策略，用于安装后重算
         self._allow_prerelease = allow_prerelease
@@ -136,9 +138,9 @@ class PydepApp(App[None]):
     # ---- 安装与刷新 ----
 
     def run_install(self, pins: list[str]) -> None:
-        """在 TUI 内部执行 pip 安装：push 安装屏幕，不退出应用。"""
+        """在 TUI 内部执行安装：push 安装屏幕，不退出应用。"""
         self.installing = True
-        self.push_screen(InstallScreen(self.env, pins, self.mirror))
+        self.push_screen(InstallScreen(self.env, pins, self.mirror, self.install_mode))
 
     def refresh_versions(self) -> None:
         """安装成功后重新探测该环境，刷新包列表中的当前版本。"""

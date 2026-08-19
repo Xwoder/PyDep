@@ -49,6 +49,32 @@ class Environment:
             return ["uv", "pip"]
         return [self.python_executable, "-m", "pip"]
 
+    def install_command(
+        self,
+        pins: list[str],
+        mode: str = "pip",
+        mirror: dict[str, str] | None = None,
+    ) -> list[str]:
+        """构建完整的安装命令。
+
+        - 普通环境：`python -m pip install ...`
+        - uv 管理环境：mode="pip" 时 `uv pip install ...`（仅改环境）；
+          mode="add" 时 `uv add ...`（同步写入 pyproject.toml 并更新 uv.lock）
+        - mirror 非空时追加索引参数：uv 用 `--index-url`，pip 用 `-i`
+        """
+        if self.is_uv:
+            cmd: list[str] = (
+                ["uv", "add", *pins]
+                if mode == "add"
+                else ["uv", "pip", "install", *pins]
+            )
+        else:
+            cmd = [self.python_executable, "-m", "pip", "install", *pins]
+        if mirror:
+            index_flag = "--index-url" if self.is_uv else "-i"
+            cmd.extend([index_flag, mirror["url"]])
+        return cmd
+
     def describe(self) -> str:
         parts = [f"Python {self.python_version}"]
         if self.is_uv:
