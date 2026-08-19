@@ -28,6 +28,7 @@ class Environment:
     pip_executable: str
     is_venv: bool
     venv_name: str | None
+    is_uv: bool = False
 
     @property
     def python_version_short(self) -> str:
@@ -39,16 +40,51 @@ class Environment:
 
     @property
     def pip_command(self) -> list[str]:
-        """推荐的 pip 调用方式：始终走当前解释器的 `-m pip`。"""
+        """推荐的安装器调用方式。
+
+        uv 管理的环境用 `uv pip`（其 .venv 默认不装 pip），
+        否则走当前解释器的 `-m pip`。
+        """
+        if self.is_uv:
+            return ["uv", "pip"]
         return [self.python_executable, "-m", "pip"]
 
     def describe(self) -> str:
         parts = [f"Python {self.python_version}"]
-        if self.is_venv and self.venv_name:
+        if self.is_uv:
+            parts.append("uv 管理")
+        elif self.is_venv and self.venv_name:
             parts.append(f"venv: {self.venv_name}")
         else:
             parts.append("系统环境")
         return " · ".join(parts)
+
+
+def _read_pyvenv_cfg(venv_root: str) -> dict[str, str]:
+    """读取虚拟环境根目录下的 pyvenv.cfg（缺失或无法读取时返回空字典）。"""
+    cfg: dict[str, str] = {}
+    try:
+        with open(os.path.join(venv_root, "pyvenv.cfg"), encoding="utf-8") as f:
+            for line in f:
+                if "=" in line:
+                    key, _, value = line.partition("=")
+                    cfg[key.strip()] = value.strip()
+    except OSError:
+        pass
+    return cfg
+
+
+def _is_uv_managed(python_executable: str) -> bool:
+    """判断给定解释器所在环境是否由 uv 管理。
+
+    识别依据：
+    - venv 根目录的 pyvenv.cfg 含 `uv = "..."` 标记（uv >= 0.2 创建环境时写入）；
+    - 或当前进程由 uv 启动（环境变量 UV_ACTIVE=1）。
+    """
+    venv_root = os.path.dirname(os.path.dirname(python_executable))
+    if "uv" in _read_pyvenv_cfg(venv_root):
+        return True
+    return os.environ.get("UV_ACTIVE") == "1"
 
 
 def _find_pip_in_bin(bin_dir: str) -> str:
@@ -74,6 +110,7 @@ def detect_environment() -> Environment:
         pip_executable=_find_pip_in_bin(os.path.dirname(exe)),
         is_venv=is_venv,
         venv_name=venv_name,
+        is_uv=_is_uv_managed(exe),
     )
 
 
@@ -169,6 +206,7 @@ def probe_interpreter(python_executable: str) -> ProbeResult:
         pip_executable=_find_pip_in_bin(os.path.dirname(data["python_executable"])),
         is_venv=is_venv,
         venv_name=os.path.basename(prefix) if is_venv else None,
+        is_uv=_is_uv_managed(data["python_executable"]),
     )
     packages = [InstalledPackage(**p) for p in data["packages"]]
     return ProbeResult(env=env, packages=packages)

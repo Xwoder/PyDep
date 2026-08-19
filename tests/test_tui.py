@@ -3,10 +3,11 @@
 import pytest
 from textual.widgets import DataTable, Label, ListView, Static
 
-from pydep.environment import detect_environment
+from pydep.environment import Environment, detect_environment
 from pydep.packages import InstalledPackage, PyPIInfo
 from pydep.resolver import UpgradeCandidate, UpgradeOption
 from pydep.ui.app import PydepApp
+from pydep.ui.install import InstallScreen
 from pydep.ui.version_list import VersionModal
 
 
@@ -278,3 +279,40 @@ async def test_filter_upgradable_toggle():
         assert len(table.rows) == 1
 
         await pilot.press("q")
+
+
+def _make_env(is_uv: bool) -> Environment:
+    return Environment(
+        python_version="3.12.3",
+        python_executable="/path/.venv/bin/python",
+        pip_executable="/path/.venv/bin/pip",
+        is_venv=True,
+        venv_name=".venv",
+        is_uv=is_uv,
+    )
+
+
+def test_install_screen_cmd_regular_pip():
+    """普通 pip 环境：镜像参数用 -i，安装走 python -m pip。"""
+    screen = InstallScreen(_make_env(is_uv=False), ["demo==2.0.0"])
+    assert screen._cmd == ["/path/.venv/bin/python", "-m", "pip", "install", "demo==2.0.0"]
+
+
+def test_install_screen_cmd_uv_pip():
+    """uv 环境：安装走 uv pip，镜像参数用 --index-url。"""
+    screen = InstallScreen(_make_env(is_uv=True), ["demo==2.0.0"])
+    assert screen._cmd == ["uv", "pip", "install", "demo==2.0.0"]
+
+
+def test_install_screen_cmd_uv_with_mirror():
+    """uv 环境 + 镜像：使用 uv 支持的 --index-url 而非 pip 的 -i。"""
+    mirror = {"name": "tuna", "url": "https://pypi.tuna.tsinghua.edu.cn/simple"}
+    screen = InstallScreen(_make_env(is_uv=True), ["demo==2.0.0"], mirror=mirror)
+    assert screen._cmd == [
+        "uv",
+        "pip",
+        "install",
+        "demo==2.0.0",
+        "--index-url",
+        "https://pypi.tuna.tsinghua.edu.cn/simple",
+    ]

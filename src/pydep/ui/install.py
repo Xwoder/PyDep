@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import shlex
+import shutil
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -53,9 +54,12 @@ class InstallScreen(Screen[None]):
         mirror: dict[str, str] | None = None,
     ) -> None:
         super().__init__()
+        self._env = env
         self._cmd = [*env.pip_command, "install", *pins]
         if mirror:
-            self._cmd.extend(["-i", mirror["url"]])
+            # uv 的索引参数为 --index-url（等价于 pip 的 -i），语义更明确
+            index_flag = "--index-url" if env.is_uv else "-i"
+            self._cmd.extend([index_flag, mirror["url"]])
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -69,6 +73,13 @@ class InstallScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        if self._env.is_uv and shutil.which("uv") is None:
+            # uv 管理的环境但本机没有 uv 可执行文件：直接提示，避免子进程报错
+            self.app.installing = False  # type: ignore[attr-defined]
+            self.query_one("#install-status", Static).update(
+                "[bold red]未检测到 uv 可执行文件，请先安装 uv[/bold red]  按 Esc 返回列表"
+            )
+            return
         self.run_worker(self._run(), exclusive=True)
 
     async def _run(self) -> None:
