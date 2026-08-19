@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from dataclasses import dataclass
+
 from textual.app import App
 from textual.binding import Binding
 
@@ -92,7 +95,18 @@ VersionModal, ConfirmModal, MirrorModal, InstallModeModal {
 """
 
 
-class PydepApp(App[None]):
+@dataclass
+class UpgradeRecord:
+    """一次升级会话中的包记录，用于退出 TUI 后打印摘要。"""
+
+    name: str
+    old_version: str | None
+    new_version: str
+    # "done" = 已执行安装成功；"selected" = 仅勾选未执行
+    status: str = "selected"
+
+
+class PydepApp(App[list[UpgradeRecord]]):
     """pydep 主应用。
 
     安装（包列表按 e -> 确认 Y）在应用内部直接完成：push 到 InstallScreen
@@ -131,6 +145,36 @@ class PydepApp(App[None]):
         self.installing = False
         # 安装成功后版本数据已刷新，等待返回包列表时重建界面
         self._pending_refresh = False
+        # 本次会话的升级记录（name -> 记录），退出 TUI 后由 CLI 打印摘要
+        self.upgrade_records: dict[str, UpgradeRecord] = {}
+
+    def action_quit(self) -> None:
+        """按 q / Ctrl+C 退出：返回本次会话的升级摘要供 CLI 打印。"""
+        records = [self.upgrade_records[name] for name in sorted(self.upgrade_records)]
+        self.exit(records)
+
+    # ---- 升级记录 ----
+
+    def record_selection(self, name: str, new_version: str) -> None:
+        """勾选或修改目标版本时记录升级信息（old 为当前环境已装版本）。"""
+        cand = self.candidates_by_name[name]
+        self.upgrade_records[name] = UpgradeRecord(
+            name=name,
+            old_version=cand.package.version,
+            new_version=new_version,
+            status="selected",
+        )
+
+    def remove_record(self, name: str) -> None:
+        """取消勾选时移除对应升级记录。"""
+        self.upgrade_records.pop(name, None)
+
+    def mark_installed(self, names: Iterable[str]) -> None:
+        """安装命令成功返回后，将本次执行安装的包标记为已升级。"""
+        for name in names:
+            record = self.upgrade_records.get(name)
+            if record is not None:
+                record.status = "done"
 
     def on_mount(self) -> None:
         self.push_screen(PackageListScreen(self.candidates, self.env))

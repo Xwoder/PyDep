@@ -57,6 +57,7 @@ class InstallScreen(Screen[None]):
         super().__init__()
         self._env = env
         self._mode = mode
+        self._names = [pin.split("==", 1)[0] for pin in pins]
         self._cmd = env.install_command(pins, mode=mode, mirror=mirror)
 
     def compose(self) -> ComposeResult:
@@ -132,6 +133,8 @@ class InstallScreen(Screen[None]):
             return
         if returncode == 0:
             status.update("[bold green]安装完成[/bold green]  按 Esc 返回列表")
+            # 标记本次安装的包为已升级（用于退出后打印摘要）
+            self.app.mark_installed(self._names)  # type: ignore[attr-defined]
             # 安装成功后异步刷新包列表中的当前版本
             self.app.refresh_versions()  # type: ignore[attr-defined]
         else:

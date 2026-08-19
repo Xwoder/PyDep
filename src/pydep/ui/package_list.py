@@ -104,11 +104,13 @@ class PackageListScreen(Screen[None]):
         selected = self.app.selected  # type: ignore[attr-defined]
         if name in selected:
             del selected[name]
+            self.app.remove_record(name)  # type: ignore[attr-defined]
         else:
             cand = self.app.candidates_by_name[name]  # type: ignore[attr-defined]
             if cand.options:
                 # 默认选中第一个（最新兼容版本）
                 selected[name] = cand.options[0].version
+                self.app.record_selection(name, cand.options[0].version)  # type: ignore[attr-defined]
             else:
                 self.notify(f"{name} 没有可升级的版本", severity="warning")
                 return
@@ -134,6 +136,7 @@ class PackageListScreen(Screen[None]):
         )
         if result:
             self.app.selected[name] = result  # type: ignore[attr-defined]
+            self.app.record_selection(name, result)  # type: ignore[attr-defined]
             self._update_row(name)
             self._update_summary()
 

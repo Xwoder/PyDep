@@ -59,9 +59,13 @@ async def test_select_package_and_version_flow():
         assert app.selected == {"demo": "1.2.0"}
         assert "demo==1.2.0" in str(app.screen.query_one("#summary", Static).content)
 
-        # q 退出
+        # q 退出：返回本次升级摘要（demo: 1.0.0 -> 1.2.0，未执行安装）
         await pilot.press("q")
-    assert app.return_value is None
+    records = app.return_value
+    assert records is not None
+    assert [(r.name, r.old_version, r.new_version, r.status) for r in records] == [
+        ("demo", "1.0.0", "1.2.0", "selected")
+    ]
 
 
 @pytest.mark.asyncio
@@ -355,3 +359,50 @@ async def test_install_mode_modal_switch_to_add():
         assert "安装模式：uv add" in str(command.render())
 
         await pilot.press("q")
+
+
+@pytest.mark.asyncio
+async def test_quit_returns_upgrade_summary():
+    """勾选后 q 退出：返回升级摘要（库名 / 原始版本 / 目标版本 / 未执行）。"""
+    app = PydepApp(candidates=make_candidates(), env=detect_environment())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("space")
+        await pilot.pause()
+        await pilot.press("q")
+    records = app.return_value
+    assert records is not None and len(records) == 1
+    rec = records[0]
+    assert (rec.name, rec.old_version, rec.new_version, rec.status) == (
+        "demo",
+        "1.0.0",
+        "1.3.0",
+        "selected",
+    )
+
+
+@pytest.mark.asyncio
+async def test_quit_summary_marks_installed():
+    """安装成功后退出：对应记录标记为已升级（done）。"""
+    app = PydepApp(candidates=make_candidates(), env=detect_environment())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("space")
+        await pilot.pause()
+        # 模拟安装命令成功返回后的回调
+        app.mark_installed(["demo"])
+        await pilot.press("q")
+    records = app.return_value or []
+    assert [(r.name, r.status) for r in records] == [("demo", "done")]
+
+
+@pytest.mark.asyncio
+async def test_quit_summary_empty_after_deselect():
+    """勾选后取消再退出：无升级记录。"""
+    app = PydepApp(candidates=make_candidates(), env=detect_environment())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("space")
+        await pilot.press("space")
+        await pilot.press("q")
+    assert app.return_value == []

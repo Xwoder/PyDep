@@ -34,7 +34,7 @@ from .packages import (
     parse_dependency_file,
 )
 from .resolver import UpgradeCandidate, build_candidates
-from .ui.app import PydepApp
+from .ui.app import PydepApp, UpgradeRecord
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, rich_markup_mode="rich")
 console = Console()
@@ -182,6 +182,24 @@ def _print_fetch_summary(stats: FetchStats, timeout: float) -> None:
         )
 
 
+def _print_upgrade_summary(records: list[UpgradeRecord]) -> None:
+    """退出 TUI 后打印本次升级摘要：库名、原始版本、升级后版本。"""
+    done = [r for r in records if r.status == "done"]
+    pending = [r for r in records if r.status == "selected"]
+    if done:
+        console.print("\n[bold green]本次升级完成：[/bold green]")
+        for r in done:
+            console.print(
+                f"  [bold]{r.name}[/bold]: {r.old_version or '（未安装）'} -> {r.new_version}"
+            )
+    if pending:
+        console.print("\n[yellow]已勾选但未执行安装：[/yellow]")
+        for r in pending:
+            console.print(
+                f"  [bold]{r.name}[/bold]: {r.old_version or '（未安装）'} -> {r.new_version}"
+            )
+
+
 def _launch_tui(
     candidates: list[UpgradeCandidate],
     env: Environment,
@@ -198,12 +216,13 @@ def _launch_tui(
     console.print(f"有 [bold]{len(upgradable)}[/bold] 个包可以升级，启动交互界面 ...")
     console.print("[dim]提示: ↑↓ 移动 · Space 勾选包(最新版) · Enter 选具体版本 · c 复制 · e 执行 · k 清理缓存 · m 镜像 · q 退出[/dim]")
 
-    PydepApp(
+    records = PydepApp(
         candidates=candidates,
         env=env,
         allow_prerelease=allow_prerelease,
         max_options=max_options,
     ).run()
+    _print_upgrade_summary(records)
 
 
 @app.command()
